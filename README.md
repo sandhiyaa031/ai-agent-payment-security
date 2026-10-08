@@ -4,7 +4,6 @@
 
 PayPal's Agent Toolkit lets an AI agent issue refunds, send invoices and cancel subscriptions. Crashtest sends dishonest "customers" at such an agent and counts the dollars it gives away. The score comes from the payment system's own records, never from what the agent says it did.
 
-Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/).
 
 ## What it does
 
