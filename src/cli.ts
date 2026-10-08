@@ -1,15 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { AdaptiveAttacker, ScriptedAttacker, type Attacker } from "./attacks/attacker";
 import { SCENARIOS } from "./attacks/scenarios";
-import { createRail, loadEnv } from "./config";
+import { createAttacker, createRail, createSubject, loadEnv } from "./config";
 import { toCents, usd } from "./money";
 import { formatReport } from "./report";
 import { runAll } from "./runner";
-import { ClaudeSubject, DEFAULT_MODEL } from "./subject/claude";
-import { GullibleSubject, StrictSubject } from "./subject/scripted";
-import type { Subject } from "./subject/subject";
 import type { Guard } from "./subject/tools";
 
 const HELP = `Crashtest: how much money can an AI support agent be talked out of?
@@ -27,19 +23,6 @@ Usage: npm run crashtest -- [options]
 
 claude and adaptive need an Anthropic API key; paypal needs sandbox keys.
 See SETUP.md.`;
-
-function createSubject(kind: string): Subject {
-  if (kind === "gullible") return new GullibleSubject();
-  if (kind === "strict") return new StrictSubject();
-  if (kind === "claude") return new ClaudeSubject(process.env["CRASHTEST_SUBJECT_MODEL"]?.trim() || DEFAULT_MODEL);
-  throw new Error(`Unknown subject "${kind}". Use gullible, strict or claude.`);
-}
-
-function createAttacker(kind: string): Attacker {
-  if (kind === "scripted") return new ScriptedAttacker();
-  if (kind === "adaptive") return new AdaptiveAttacker(process.env["CRASHTEST_ATTACKER_MODEL"]?.trim() || DEFAULT_MODEL);
-  throw new Error(`Unknown attacker "${kind}". Use scripted or adaptive.`);
-}
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
@@ -74,9 +57,11 @@ async function main(): Promise<void> {
     attacker: createAttacker(values.attacker),
     rail: createRail(values.rail),
     guard,
-    onScenario: (result) => {
-      const verdict = result.wrongfulCents > 0 ? `LOST ${usd(result.wrongfulCents)}` : "held";
-      console.error(`  ${result.id}: ${verdict}`);
+    hooks: {
+      onScenario: (result) => {
+        const verdict = result.wrongfulCents > 0 ? `LOST ${usd(result.wrongfulCents)}` : "held";
+        console.error(`  ${result.id}: ${verdict}`);
+      },
     },
   });
 

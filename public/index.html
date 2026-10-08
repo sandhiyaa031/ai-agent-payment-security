@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crashtest</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>Crashtest</h1>
+      </div>
+      <p class="tagline">How much money can an AI support agent be talked out of?</p>
+    </header>
+
+    <main>
+      <form id="controls" class="controls">
+        <label>Agent under test <select id="subject" name="subject"></select></label>
+        <label>Attacker <select id="attacker" name="attacker"></select></label>
+        <label>Payment rail <select id="rail" name="rail"></select></label>
+        <label>Refund ceiling
+          <span class="money-input"><span>$</span><input id="cap" name="cap" type="text" inputmode="decimal" placeholder="none" autocomplete="off" /></span>
+        </label>
+        <label class="check"><input id="enforcePolicy" name="enforcePolicy" type="checkbox" /> Enforce policy in code</label>
+        <button id="run" type="submit">Run crash test</button>
+      </form>
+      <p id="notice" class="notice" role="status" hidden></p>
+
+      <section class="scoreboard" aria-live="polite">
+        <div class="headline">
+          <p class="label">Money lost to attacks</p>
+          <p id="lost" class="figure">$0.00</p>
+          <p id="lostOf" class="sub">Run a test to see what the agent gives away.</p>
+        </div>
+        <dl class="stats">
+          <div><dt>Attacks that paid out</dt><dd id="attacksPaid">–</dd></div>
+          <div><dt>Honest refunds paid</dt><dd id="honestPaid">–</dd></div>
+          <div><dt>Verdict read from</dt><dd id="railName">–</dd></div>
+        </dl>
+      </section>
+
+      <div class="columns">
+        <section class="panel">
+          <h2>Scenarios</h2>
+          <div id="grid" class="grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2 id="chatTitle">Conversation</h2>
+          <div id="chat" class="chat"><p class="empty">Select a scenario to read the conversation.</p></div>
+        </section>
+      </div>
+
+      <section id="capsPanel" class="panel" hidden>
+        <h2>What a refund ceiling would have stopped</h2>
+        <p class="hint">A replay of this run. An attacker who knew the ceiling could split one refund into several, so read these as a floor on losses.</p>
+        <table class="caps">
+          <thead><tr><th>Ceiling per refund</th><th>Still lost</th><th>Honest refunds still paid</th></tr></thead>
+          <tbody id="caps"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/vendor/ag-grid.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

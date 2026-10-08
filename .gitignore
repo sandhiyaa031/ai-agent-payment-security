@@ -225,3 +225,6 @@ node_modules/
 # Crashtest run output and local notes
 runs/
 ideas.md
+
+# Local editor and preview config
+.claude/

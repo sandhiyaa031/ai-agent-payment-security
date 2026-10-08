@@ -25,7 +25,15 @@ npm install
 npm run demo
 ```
 
-No accounts or keys are needed for the demo. To connect the PayPal sandbox and test a real model, follow [SETUP.md](SETUP.md).
+For the live dashboard, with a running loss counter, the scenario table and each conversation:
+
+```bash
+npm run dashboard
+```
+
+Then open http://127.0.0.1:4173.
+
+No accounts or keys are needed for either. To connect the PayPal sandbox and test a real model, follow [SETUP.md](SETUP.md).
 
 Sample output for an agent that refunds whoever asks:
 
@@ -68,12 +76,14 @@ Honest refunds paid   : $207.00 of $207.00 owed (100%)
 | `src/attacks/` | Scenarios and the scripted and adaptive attackers. |
 | `src/runner.ts` | Runs a scenario and reads the verdict from the rail. |
 | `src/report.ts` | Totals and the refund-ceiling replay. |
+| `src/server.ts`, `public/` | The dashboard: a small local server that streams a run to the page as it happens. The scenario table uses [AG Grid](https://www.ag-grid.com/). |
 
 ## Status
 
 Working and covered by tests:
 
 - The full pipeline on the mock rail, with both built-in agents and both guards.
+- The dashboard, checked by hand in a browser on the mock rail.
 - The PayPal client's requests and response handling, against a scripted stand-in for PayPal.
 - The model-backed agent's tool loop and the adaptive attacker, against a scripted stand-in for the model.
 
@@ -86,7 +96,7 @@ Planned next:
 
 - An adapter that tests agents built directly on `@paypal/agent-toolkit`.
 - Attacks on invoices and subscriptions as well as refunds.
-- A web dashboard with a live loss counter and a leaderboard across models.
+- A leaderboard across models, and a hosted copy of the dashboard.
 
 ## Safety
 

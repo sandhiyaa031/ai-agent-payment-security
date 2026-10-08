@@ -10,13 +10,15 @@
   },
   "scripts": {
     "crashtest": "tsx src/cli.ts",
+    "dashboard": "tsx src/server.ts",
     "demo": "tsx src/cli.ts --subject gullible && tsx src/cli.ts --subject strict",
     "paypal:check": "tsx scripts/paypal-check.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1"
+    "@anthropic-ai/sdk": "^0.132.1",
+    "ag-grid-community": "^36.2.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

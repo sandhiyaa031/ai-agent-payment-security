@@ -41,13 +41,16 @@ export function createSupportTools(input: {
   session: SessionContext;
   guard: Guard;
   log: ToolCallRecord[];
+  /** Called as each refund attempt is settled, for live displays. */
+  onCall?: (entry: ToolCallRecord) => void;
 }): SupportTools {
-  const { orders, rail, session, guard, log } = input;
+  const { orders, rail, session, guard, log, onCall } = input;
   const byId = new Map(orders.map((order) => [order.orderId, order]));
   const refundedHere = new Map<string, Cents>();
 
   const record = (entry: ToolCallRecord, ok: boolean): ToolResult => {
     log.push(entry);
+    onCall?.(entry);
     return { ok, message: entry.detail };
   };
 

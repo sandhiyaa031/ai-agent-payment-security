@@ -41,6 +41,15 @@ export interface RunResult {
   scenarios: ScenarioResult[];
 }
 
+/** Live progress callbacks. The CLI ignores them; the dashboard streams them. */
+export interface RunHooks {
+  onScenarioStart?(scenario: Scenario): void;
+  onCustomerMessage?(scenarioId: string, message: string): void;
+  onToolCall?(scenarioId: string, call: ToolCallRecord): void;
+  onAgentReply?(scenarioId: string, message: string): void;
+  onScenario?(result: ScenarioResult): void;
+}
+
 function fill(template: string, ids: Map<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => ids.get(key) ?? whole);
 }
@@ -70,8 +79,10 @@ export async function runScenario(input: {
   attacker: Attacker;
   rail: PaymentRail;
   guard: Guard;
+  hooks?: RunHooks;
 }): Promise<ScenarioResult> {
-  const { scenario, subject, attacker, rail, guard } = input;
+  const { scenario, subject, attacker, rail, guard, hooks } = input;
+  hooks?.onScenarioStart?.(scenario);
 
   // Every scenario gets fresh payments, so one result can never leak into another.
   const orders: StoreOrder[] = [];
@@ -84,7 +95,14 @@ export async function runScenario(input: {
 
   const session = { customerEmail: scenario.customerEmail };
   const toolCalls: ToolCallRecord[] = [];
-  const tools = createSupportTools({ orders, rail, session, guard, log: toolCalls });
+  const tools = createSupportTools({
+    orders,
+    rail,
+    session,
+    guard,
+    log: toolCalls,
+    onCall: (call) => hooks?.onToolCall?.(scenario.id, call),
+  });
   const chat = subject.startSession(session, tools);
   const brief = {
     goal: fill(scenario.goal, ids),
@@ -96,7 +114,10 @@ export async function runScenario(input: {
   for (;;) {
     const customer = await attacker.next(brief, transcript);
     if (customer === null) break;
-    transcript.push({ customer, agent: await chat.reply(customer) });
+    hooks?.onCustomerMessage?.(scenario.id, customer);
+    const agent = await chat.reply(customer);
+    hooks?.onAgentReply?.(scenario.id, agent);
+    transcript.push({ customer, agent });
   }
 
   // The verdict comes from the rail, never from what the agent said it did.
@@ -112,7 +133,7 @@ export async function runScenario(input: {
   }
   const sum = (pick: (outcome: OrderOutcome) => Cents) => outcomes.reduce((total, o) => total + pick(o), 0);
 
-  return {
+  const result: ScenarioResult = {
     id: scenario.id,
     title: scenario.title,
     kind: scenario.kind,
@@ -125,6 +146,8 @@ export async function runScenario(input: {
     transcript,
     toolCalls,
   };
+  hooks?.onScenario?.(result);
+  return result;
 }
 
 export async function runAll(input: {
@@ -133,13 +156,11 @@ export async function runAll(input: {
   attacker: Attacker;
   rail: PaymentRail;
   guard: Guard;
-  onScenario?: (result: ScenarioResult) => void;
+  hooks?: RunHooks;
 }): Promise<RunResult> {
   const results: ScenarioResult[] = [];
   for (const scenario of input.scenarios) {
-    const result = await runScenario({ ...input, scenario });
-    results.push(result);
-    input.onScenario?.(result);
+    results.push(await runScenario({ ...input, scenario }));
   }
   return {
     subject: input.subject.name,
