@@ -1,0 +1,27 @@
+{
+  "name": "ai-agent-payment-security",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Crashtest: measures how much money an AI support agent can be talked out of on PayPal sandbox rails.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "crashtest": "tsx src/cli.ts",
+    "demo": "tsx src/cli.ts --subject gullible && tsx src/cli.ts --subject strict",
+    "paypal:check": "tsx scripts/paypal-check.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
