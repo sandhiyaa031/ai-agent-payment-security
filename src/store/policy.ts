@@ -15,6 +15,9 @@ export interface StoreOrder {
   returnReceived: boolean;
 }
 
+/** Bump when the policy text or its code changes, so old results are not compared with new ones. */
+export const POLICY_VERSION = "1";
+
 export const LATE_AFTER_DAYS = 10;
 export const RETURN_WINDOW_DAYS = 30;
 

@@ -1,9 +1,10 @@
 import { PayPalAgentToolkit } from "@paypal/agent-toolkit/openai";
 import type { ChatModel, ToolSpec } from "../llm/model";
 import { toCents, toDecimal, usd } from "../money";
+import { toRefundStatus } from "../rail/rail";
 import { createChat, systemPrompt, type ToolReply } from "./agent";
 import type { Subject, SubjectSession } from "./subject";
-import type { SessionContext, SupportTools } from "./tools";
+import type { SendResult, SessionContext, SupportTools } from "./tools";
 
 /** The part of PayPal's Agent Toolkit this subject relies on. Tests pass a stand-in. */
 export interface ToolkitLike {
@@ -26,6 +27,9 @@ const LOOKUP_TOOL: ToolSpec = {
     additionalProperties: false,
   },
 };
+
+/** Toolkit tools that only read. Anything else must be handled explicitly below or it is refused. */
+const READ_ONLY_TOOLS = new Set(["get_refund"]);
 
 /**
  * Builds the real toolkit, limited to refunds and pinned to the sandbox.
@@ -104,24 +108,33 @@ export class ToolkitSubject implements Subject {
       );
     }
 
-    const forward = async () => {
+    const forward = async (args: Record<string, unknown>) => {
       const result = await this.toolkit.handleToolCall({
         id: call.id,
         type: "function",
-        function: { name: call.name, arguments: JSON.stringify(input) },
+        function: { name: call.name, arguments: JSON.stringify(args) },
       });
       return typeof result.content === "string" ? result.content : JSON.stringify(result.content);
     };
 
-    // Read-only toolkit tools pass straight through.
-    if (call.name !== "create_refund") return reply(await forward());
+    if (READ_ONLY_TOOLS.has(call.name)) return reply(await forward(input));
+    // Only refunds are handled past this point. A toolkit tool that changes
+    // anything else is never forwarded, even if a future toolkit version or
+    // configuration were to offer one.
+    if (call.name !== "create_refund") return reply(`The tool ${call.name} is not available.`, true);
 
     const order = typeof input["capture_id"] === "string" ? tools.getOrderByCapture(input["capture_id"]) : undefined;
-    if (!order) return reply("That capture id does not belong to an order in this store.", true);
+    if (!order) {
+      // Still an attempt: it goes through the boundary so it is counted, and is rejected there.
+      const outcome = await tools.refundVia(String(input["capture_id"]), 0, "(unknown capture)", neverSent);
+      return reply(outcome.message, true);
+    }
 
-    // The toolkit refunds the full capture when no amount is given.
+    // The toolkit refunds the whole capture when no amount is given. Here the
+    // amount is always made explicit, so what the boundary checks is exactly
+    // what PayPal is asked to refund.
     let amountCents = order.amountCents;
-    const amount = input["amount"] as { currency_code?: unknown; value?: unknown } | undefined;
+    const amount = input["amount"] as { currency_code?: unknown; value?: unknown } | undefined | null;
     if (amount !== undefined && amount !== null) {
       if (amount.currency_code !== "USD" || typeof amount.value !== "string") {
         return reply("Refund amounts must be in USD, as a decimal string.", true);
@@ -132,23 +145,39 @@ export class ToolkitSubject implements Subject {
         return reply(`"${amount.value}" is not a valid dollar amount.`, true);
       }
     }
-    const reason = typeof input["note_to_payer"] === "string" ? input["note_to_payer"] : "(no note)";
+    const note = typeof input["note_to_payer"] === "string" ? input["note_to_payer"] : undefined;
 
-    const outcome = await tools.refundVia(order.orderId, amountCents, reason, async () => {
-      const content = await forward();
-      return { accepted: looksLikeRefund(content), detail: content };
+    const outcome = await tools.refundVia(order.orderId, amountCents, note ?? "(no note)", async () => {
+      // The toolkit sets no idempotency key, so this request is sent exactly
+      // once and never resent; a failure is reported, not retried.
+      const content = await forward({
+        capture_id: order.captureId,
+        amount: { currency_code: "USD", value: toDecimal(amountCents) },
+        ...(note === undefined ? {} : { note_to_payer: note }),
+      });
+      return readRefund(content, amountCents, order.orderId);
     });
-    if (outcome.ok) return reply(outcome.message);
-    return reply(outcome.message || `Could not refund ${usd(amountCents)}.`, true);
+    return reply(outcome.message, !outcome.ok);
   }
 }
 
-/** PayPal answers a successful refund with an object carrying an id and a live status. */
-function looksLikeRefund(content: string): boolean {
+const neverSent = async (): Promise<SendResult> => {
+  throw new Error("an unknown capture must be rejected before anything is sent");
+};
+
+/**
+ * Reads PayPal's answer to a refund request. Only the refund id and status are
+ * kept; the rest of the response is not copied into logs or recordings.
+ */
+function readRefund(content: string, amountCents: number, orderId: string): SendResult {
   try {
     const parsed = JSON.parse(content) as { id?: unknown; status?: unknown };
-    return typeof parsed.id === "string" && typeof parsed.status === "string" && !["FAILED", "CANCELLED"].includes(parsed.status);
+    if (typeof parsed.id === "string") {
+      const status = toRefundStatus(parsed.status);
+      return { status, refundId: parsed.id, detail: `Refund ${parsed.id} of ${usd(amountCents)} on order ${orderId}: ${status}.` };
+    }
   } catch {
-    return false;
+    // not JSON: the toolkit returned an error message
   }
+  return { status: "REJECTED", detail: "PayPal did not accept the refund." };
 }

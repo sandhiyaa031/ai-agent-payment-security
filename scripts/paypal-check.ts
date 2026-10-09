@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { createRail, loadEnv } from "../src/config";
 import { usd } from "../src/money";
-import { RailError } from "../src/rail/rail";
+import { RailError, sumByStatus } from "../src/rail/rail";
 
 /**
  * Proves the sandbox keys and test card work end to end: take a $1.00 test
- * payment, refund $0.40 of it, and read the refund back from PayPal.
+ * payment, refund $0.40 of it, send the same refund request again to confirm
+ * PayPal does not refund twice, and read the result back from PayPal.
  */
 async function main(): Promise<void> {
   loadEnv();
@@ -15,16 +17,32 @@ async function main(): Promise<void> {
   console.log(`   OK   order ${charge.orderId}, capture ${charge.captureId}`);
 
   console.log("2. Refunding $0.40...");
-  const refund = await rail.refund({ captureId: charge.captureId, amountCents: 40, note: "Crashtest setup check" });
+  const request = { captureId: charge.captureId, amountCents: 40, note: "Crashtest setup check", idempotencyKey: randomUUID() };
+  const refund = await rail.refund(request);
   console.log(`   OK   refund ${refund.refundId} (${refund.status})`);
 
-  console.log("3. Reading the refund back from PayPal...");
-  const refunded = await rail.refundedCents(charge.orderId);
-  if (refunded !== 40) {
-    throw new Error(`PayPal reports ${usd(refunded)} refunded on the order; expected $0.40.`);
+  console.log("3. Sending the same request again, with the same key...");
+  const again = await rail.refund(request);
+  if (again.refundId !== refund.refundId) {
+    throw new Error(`PayPal created a second refund (${again.refundId}) for a repeated request. Duplicate protection is not working.`);
   }
-  console.log("   OK   PayPal reports $0.40 refunded");
-  console.log("\nSetup check passed. You can now run: npm run crashtest -- --rail paypal");
+  console.log("   OK   PayPal returned the original refund, not a new one");
+
+  console.log("4. Reading the refunds back from PayPal...");
+  const records = await rail.refunds(charge.orderId);
+  const completed = sumByStatus(records, "COMPLETED");
+  const pending = sumByStatus(records, "PENDING");
+  for (const record of records) console.log(`        ${record.refundId}  ${usd(record.amountCents)}  ${record.status}`);
+  if (records.length !== 1 || completed + pending !== 40) {
+    throw new Error(`Expected exactly one refund of $0.40 on the order; PayPal reports ${records.length} totalling ${usd(completed + pending)}.`);
+  }
+  if (pending > 0) {
+    console.log("   NOTE the refund is still PENDING. Crashtest counts only COMPLETED refunds as money moved,");
+    console.log("        so runs on this account may show refunds as unresolved until PayPal settles them.");
+  } else {
+    console.log("   OK   PayPal reports one COMPLETED refund of $0.40");
+  }
+  console.log("\nSetup check passed. You can now run: npm run crashtest -- --profile sandbox");
 }
 
 main().catch((error: unknown) => {

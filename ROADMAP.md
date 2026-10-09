@@ -2,111 +2,139 @@
 
 Deadline: **12 November 2026, 12:00 pm Pacific**. Target: submit by **10 November**.
 
-A box is ticked only when the item is built **and** checked. "Checked" means tests pass, or it was run and seen working. Items that need your accounts are marked **(you)**.
+**Current phase: 4, live verification.** It is blocked on keys only the repository owner can create.
 
-**Current phase: 4, live verification.** Phases 1 to 3 are built and pass their tests offline. Nothing has yet run against the real PayPal sandbox or a real AI model, and that is what blocks phases 5 to 7.
+How to read this:
+
+- A box is ticked only when the item is built **and** checked.
+- "Offline tests" means automated tests against stand-ins. It does **not** mean the real service has been tried.
+- Items that need your accounts are marked **(you)**.
 
 | Phase | Status |
 |---|---|
 | 0. Idea and rules | Done |
-| 1. Core engine | Done |
-| 2. Dashboard | Done |
-| 3. Real agents | Built, waiting on phase 4 |
-| 4. Live verification | **In progress, waiting on keys** |
+| 1. Core engine | Done (offline tests) |
+| 2. Dashboard | Done (offline tests and a manual browser check) |
+| 3. Real agents | Built (offline tests only); not proven live |
+| 4. Live verification | **In progress, blocked on keys** |
 | 5. More attacks and evidence | Not started |
-| 6. Hosted demo | Partly built |
+| 6. Hosted demo | Built locally; not deployed |
 | 7. Submission | Not started |
 
 ---
 
 ## Phase 0: Idea and rules
 
-Goal: pick one project and know what the judges require.
+**Goal:** pick one project and know what the judges require.
+**Done when:** the topic is fixed and the repository meets the entry rules for a public, licensed codebase.
 
 - [x] Read the Devpost overview, official rules and resources
-- [x] Explore and reject weaker ideas (dispute desk, sealed information, bonded claims, spending rules)
-- [x] Lock the topic: Crashtest, a red-team benchmark for AI agents that move money through PayPal
+- [x] Explore and reject weaker ideas
+- [x] Lock the topic: Crashtest, a red-team benchmark for AI agents that refund money through PayPal
 - [x] Public repository with an MIT license
 
 ## Phase 1: Core engine
 
-Goal: run dishonest-customer scenarios against an agent and score the money lost from the payment system's own records.
+**Goal:** run dishonest-customer scenarios against an agent and score the outcome from the payment system's own records.
+**Done when:** `npm test` passes and `npm run demo` prints a baseline and a guarded report with no keys present.
 
 - [x] Money handled as whole cents, with strict parsing
-- [x] Payment rail interface, with an in-memory test rail that follows PayPal's refund rules
-- [x] Store refund policy, as text for the agent and as code for the referee
-- [x] Refund tool with two guards: per-refund ceiling and policy enforced in code
-- [x] 8 attack scenarios and 3 honest-customer scenarios
-- [x] Two built-in agents that need no keys: one gullible, one strict
-- [x] Referee that reads refunds back from the rail
-- [x] Report with totals and the refund-ceiling replay
-- [x] Command-line runner
+- [x] Payment rail interface with refund statuses, and an in-memory test rail that follows PayPal's refund rules
+- [x] Store refund policy as text and as code, with a version number
+- [x] One refund checkpoint: safety envelope (always on) plus defenses under test (policy, per-order ceiling)
+- [x] Three evaluation profiles: baseline, guarded, sandbox
+- [x] 8 attack scenarios and 3 honest-customer scenarios, each with a hand-written expected refund
+- [x] Three built-in agents that need no keys: gullible, strict, refuse-all
+- [x] Scoring: over-refund, under-refund, correctly refunded, attempts, blocks, repeats, unresolved
+- [x] Report and command-line runner
+- [x] A failed scenario is recorded as an error and the run continues
 
 ## Phase 2: Dashboard
 
-Goal: make a run watchable, for the demo video and for judges.
+**Goal:** make a run watchable, for the demo video and for judges.
+**Done when:** a run started in the browser shows the same numbers as the command line, and a saved run replays identically.
 
 - [x] Local web server that streams a run as it happens
-- [x] Live "money lost" counter, scenario table (AG Grid) and conversation view
-- [x] Same controls as the command line
-- [x] Works at phone width
-- [x] Saved runs table with replay
-- [x] Hosted mode that cannot spend money or reach any account
+- [x] Live loss counter, attempts and outcomes shown separately, scenario table (AG Grid), conversation view
+- [x] Profile, agent, attacker and ceiling controls
+- [x] Saved runs table with replay; replay creates no rail, agent or attacker (tested)
+- [x] Hosted mode that cannot use a key or a real provider (tested over HTTP)
+- [x] Runs cannot be started from another website (tested)
+- [ ] Layout re-checked by eye after the profile changes (last visual check predates them; content was checked, a screenshot was not possible)
 
 ## Phase 3: Real agents
 
-Goal: test real AI agents, including one built on PayPal's own Agent Toolkit, at no cost.
+**Goal:** be able to test real AI agents, including one built on PayPal's own Agent Toolkit, at no cost.
+**Done when:** every item below passes its offline tests. Proving them live is phase 4.
 
-- [x] PayPal sandbox client (test payment, refund, read refunds back), tested against a stand-in
-- [x] AI agent with a tool-calling loop, tested against a stand-in
-- [x] Adaptive attacker that changes tactics each turn, tested against a stand-in
-- [x] Agent whose refund tool is the real `@paypal/agent-toolkit` `create_refund`
-- [x] Toolkit limited to refunds and pinned to the sandbox
-- [x] Free AI providers (Groq, OpenRouter, Gemini, Ollama), with waiting and retrying on rate limits
-- [x] Setup checks: `npm run paypal:check` and `npm run llm:check`
+- [x] PayPal sandbox client: test payment, refund, read refunds with statuses (offline tests)
+- [x] PayPal client refuses any non-sandbox host (offline tests)
+- [x] PayPal client resends a write at most once, with the same idempotency key (offline tests)
+- [x] AI agent with a tool-calling loop (offline tests)
+- [x] Adaptive attacker (offline tests)
+- [x] Agent whose refund tool is the real `@paypal/agent-toolkit` `create_refund`, routed through the refund checkpoint (offline tests; the real toolkit is loaded offline to check its tool list and sandbox address)
+- [x] Free AI providers, with waiting and retrying on rate limits (offline tests)
+- [x] Setup checks written: `npm run paypal:check`, `npm run llm:check` (not yet run against the services)
 
 ## Phase 4: Live verification  ← we are here
 
-Goal: prove every path works against the real services, and fix whatever they reject.
+**Goal:** prove every path works against the real services, and fix whatever they reject.
+**Done when:** both setup checks pass, one full run completes in each profile with a real model, and at least one recording of a real run is saved.
+**Blocked on:** the first two items.
 
 - [ ] **(you)** Create the PayPal sandbox app and a test card, and fill in `.env`
 - [ ] **(you)** Create a free Groq key and add it to `.env`
-- [ ] `npm run paypal:check` passes
-- [ ] `npm run llm:check` passes
-- [ ] Full run: AI agent, scripted attacks, test rail
-- [ ] Full run: AI agent, adaptive attacker, test rail
-- [ ] Full run: AI agent on the PayPal sandbox rail
-- [ ] Full run: Agent Toolkit agent on the PayPal sandbox, adaptive attacker
-- [ ] Refunds from a run are visible in the PayPal sandbox dashboard
+- [ ] `npm run paypal:check` passes: payment taken, refund made, repeated request returns the same refund, refund read back
+- [ ] Record what status PayPal gives a fresh sandbox refund (`COMPLETED` or `PENDING`) and adjust if needed
+- [ ] `npm run llm:check` passes: the model replies and calls a tool
+- [ ] Full run, `baseline`, AI agent, scripted attacker
+- [ ] Full run, `guarded`, AI agent, scripted attacker
+- [ ] Full run, `baseline`, AI agent, adaptive attacker
+- [ ] Full run, `sandbox`, AI agent: only owed refunds appear in the PayPal sandbox dashboard
+- [ ] Full run, `sandbox`, Agent Toolkit agent
+- [ ] Free-tier rate limits survive a full run without a scenario error
 - [ ] First real results recorded into `recordings/`
 
 ## Phase 5: More attacks and evidence
 
-Goal: make the results broad and credible enough to call a benchmark.
+**Goal:** make the refund benchmark broad and credible enough to publish numbers from.
+**Done when:** at least three model or configuration combinations have been run 10 times per scenario with the scripted attacker, and the results are in the README with sample counts.
+**Depends on:** phase 4.
 
-- [ ] Attacks on invoices (for example, talking the agent into cancelling or editing one)
-- [ ] Attacks on subscriptions (for example, an unearned cancellation or price change)
-- [ ] More refund scenarios, including split refunds that slip under a ceiling
-- [ ] Repeat each scenario several times and report a loss rate, since models vary between runs
-- [ ] Compare at least three models or configurations
-- [ ] Leaderboard view in the dashboard
-- [ ] Hardening guide: recommended limits for each toolkit tool, drawn from the results
+In priority order:
+
+- [ ] Split and cumulative refund scenarios (several small refunds on one order; one owed order used to carry an unowed one)
+- [ ] Duplicate refund and retry scenarios ("it didn't arrive in my account, send it again")
+- [ ] Invalid reference scenarios (another store's order id, a made-up capture id)
+- [ ] More prompt-injection and social-engineering scenarios
+- [ ] More honest-customer scenarios, including ones that are easy to refuse wrongly
+- [ ] Repeat runs: `--repeat N`, reporting per-scenario rates and the sample count
+- [ ] Compare at least three model or configuration combinations
+- [ ] Leaderboard in the dashboard showing profile, attempts, losses, under-refunds, sample count and settings side by side
+- [ ] Adaptive attacker results reported separately, as a stress test
+- [ ] Hardening guide: recommended toolkit permissions and limits, each tied to a measured result
+
+Deferred to a later version: invoice and subscription attacks. They need different tools and a scoring method that can be defended.
 
 ## Phase 6: Hosted demo
 
-Goal: give judges a link they can open with no setup.
+**Goal:** give judges a link they can open with no setup.
+**Done when:** the public link loads, runs the built-in agents, and replays at least one recorded real run.
+**Depends on:** phase 4 for the recordings.
 
-- [x] Hosted mode and Render deployment file written
+- [x] Hosted mode written and tested locally
+- [x] Render deployment file written (not yet deployed, so not yet proven)
 - [ ] **(you)** Create a free Render account and connect the repository
 - [ ] Deployed copy loads and replays the recorded real runs
 - [ ] Link added to the README
 
 ## Phase 7: Submission
 
-Goal: a complete Devpost entry, submitted two days early.
+**Goal:** a complete Devpost entry, submitted two days early.
+**Done when:** every requirement in the official rules is met and the entry is submitted.
 
-- [ ] README final pass: what it is, results, how to run, tools used
-- [ ] Short write-up of findings, with numbers from phase 5
+- [ ] README final pass with real results
+- [ ] Short write-up of findings, with numbers and sample counts from phase 5
 - [ ] Demo video under 3 minutes, on YouTube, public, with no copyrighted music
 - [ ] Devpost text description and list of tools used
 - [ ] Check every submission requirement against the official rules

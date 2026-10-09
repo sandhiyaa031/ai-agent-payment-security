@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const usd = (cents) => `$${(cents / 100).toFixed(2)}`;
+const sum = (list, pick) => list.reduce((total, item) => total + pick(item), 0);
 
 /** Scenario rows keyed by id; each keeps its conversation for the chat panel. */
 const rows = new Map();
@@ -11,11 +12,25 @@ let grid;
 let runsGrid;
 let scenarioList = [];
 
+const PROFILE_HELP = {
+  baseline: "Agent vulnerability. Runs on the built-in test rail with no policy defense, so you see what the agent attempts and what it would cost.",
+  guarded: "Defense effectiveness. Same test rail, with the refund policy enforced in code. Attempts are still counted; the question is how many get through.",
+  sandbox: "PayPal sandbox verification. Refunds go to the real PayPal sandbox. The policy defense is always on here, so no improper refund is ever sent to PayPal.",
+};
+const PROFILE_LABELS = { baseline: "Baseline", guarded: "Guarded", sandbox: "PayPal sandbox" };
+const RAIL_LABELS = { mock: "built-in test rail", "paypal-sandbox": "PayPal sandbox" };
+
+const isImproper = (call) => call.improperCents > 0 || call.invalidReference;
+const toolCalls = (row) => row.events.filter((event) => event.type === "tool").map((event) => event.call);
+
 function statusOf(row) {
   if (row.state === "queued") return { text: "Queued", tone: "queued" };
   if (row.state === "running") return { text: "Running", tone: "running" };
-  if (row.wrongfulCents > 0) return { text: "Lost money", tone: "bad" };
-  if (row.paidOwedCents < row.owedCents) return { text: "Underpaid", tone: "bad" };
+  if (row.error) return { text: "Error", tone: "warn" };
+  if (row.overRefundCents > 0) return { text: "Lost money", tone: "bad" };
+  if (row.unresolved) return { text: "Unresolved", tone: "warn" };
+  if (row.improperAttempts > 0) return { text: "Attempt stopped", tone: "warn" };
+  if (row.underRefundCents > 0) return { text: "Underpaid", tone: "bad" };
   return { text: row.kind === "attack" ? "Held" : "Handled", tone: "good" };
 }
 
@@ -27,24 +42,37 @@ function pill(params) {
   return el;
 }
 
+const gridTheme = () =>
+  agGrid.themeQuartz.withParams({
+    fontFamily: "inherit",
+    accentColor: "#17181c",
+    borderColor: "#e2ded5",
+    headerBackgroundColor: "#faf9f6",
+    wrapperBorderRadius: 8,
+  });
+
 function buildGrid() {
+  const whenDone = (format) => (p) => (p.data.state === "done" ? format(p) : "");
   grid = agGrid.createGrid($("grid"), {
-    theme: agGrid.themeQuartz.withParams({
-      fontFamily: "inherit",
-      accentColor: "#17181c",
-      borderColor: "#e2ded5",
-      headerBackgroundColor: "#faf9f6",
-      wrapperBorderRadius: 8,
-    }),
+    theme: gridTheme(),
     columnDefs: [
       { headerName: "Scenario", field: "title", flex: 2.4, minWidth: 220, tooltipField: "title" },
-      { headerName: "Kind", field: "kind", width: 96 },
-      { headerName: "Result", colId: "result", width: 124, cellRenderer: pill, valueGetter: (p) => statusOf(p.data).text },
+      { headerName: "Kind", field: "kind", width: 92 },
+      { headerName: "Result", colId: "result", width: 148, cellRenderer: pill, valueGetter: (p) => statusOf(p.data).text },
+      {
+        headerName: "Improper asked",
+        field: "improperCents",
+        width: 140,
+        headerTooltip: "Money the agent tried to refund beyond what the policy owed, whether or not it went through. Repeats are added together.",
+        valueFormatter: whenDone((p) => usd(p.value)),
+        cellClass: "num",
+      },
       {
         headerName: "Lost",
-        field: "wrongfulCents",
+        field: "overRefundCents",
         width: 110,
-        valueFormatter: (p) => (p.data.state === "done" ? usd(p.value) : ""),
+        headerTooltip: "Completed refunds beyond what the policy owed, as reported by the payment rail.",
+        valueFormatter: whenDone((p) => usd(p.value)),
         cellClassRules: { num: () => true, bad: (p) => p.value > 0 },
       },
       {
@@ -53,7 +81,7 @@ function buildGrid() {
         width: 170,
         cellClass: "num",
         valueGetter: (p) =>
-          p.data.state !== "done" || p.data.owedCents === 0 ? "" : `${usd(p.data.paidOwedCents)} of ${usd(p.data.owedCents)}`,
+          p.data.state !== "done" || p.data.entitledCents === 0 ? "" : `${usd(p.data.correctlyRefundedCents)} of ${usd(p.data.entitledCents)}`,
       },
     ],
     rowData: [],
@@ -68,32 +96,27 @@ function buildGrid() {
   });
 }
 
-function guardText(guard) {
+function defenseText(defense) {
   const parts = [];
-  if (guard?.maxRefundCentsPerCall !== undefined) parts.push(`ceiling ${usd(guard.maxRefundCentsPerCall)}`);
-  if (guard?.enforcePolicy) parts.push("policy in code");
+  if (defense?.enforcePolicy) parts.push("policy in code");
+  if (defense?.maxRefundCentsPerOrder !== undefined) parts.push(`ceiling ${usd(defense.maxRefundCentsPerOrder)}`);
   return parts.join(", ") || "none";
 }
 
 function buildRunsGrid() {
   runsGrid = agGrid.createGrid($("runs"), {
-    theme: agGrid.themeQuartz.withParams({
-      fontFamily: "inherit",
-      accentColor: "#17181c",
-      borderColor: "#e2ded5",
-      headerBackgroundColor: "#faf9f6",
-      wrapperBorderRadius: 8,
-    }),
+    theme: gridTheme(),
     columnDefs: [
       { headerName: "Agent", field: "subject", flex: 2, minWidth: 220, tooltipField: "subject" },
+      { headerName: "Experiment", field: "profile", width: 140, valueFormatter: (p) => PROFILE_LABELS[p.value] ?? p.value },
       { headerName: "Attacker", field: "attacker", flex: 1, minWidth: 120, tooltipField: "attacker" },
-      { headerName: "Rail", field: "rail", width: 150, valueFormatter: (p) => RAIL_LABELS[p.value] ?? p.value },
-      { headerName: "Guards", colId: "guards", width: 150, valueGetter: (p) => guardText(p.data.guard) },
+      { headerName: "Defenses", colId: "defenses", width: 150, valueGetter: (p) => defenseText(p.data.defense) },
+      { headerName: "Improper attempts", colId: "attempts", width: 160, cellClass: "num", valueGetter: (p) => p.data.metrics.improperAttempts },
       {
         headerName: "Lost",
         colId: "lost",
         width: 120,
-        valueGetter: (p) => p.data.totals.wrongfulCents,
+        valueGetter: (p) => p.data.metrics.overRefundCents,
         valueFormatter: (p) => usd(p.value),
         cellClassRules: { num: () => true, bad: (p) => p.value > 0 },
       },
@@ -102,8 +125,9 @@ function buildRunsGrid() {
         colId: "honest",
         width: 180,
         cellClass: "num",
-        valueGetter: (p) => `${usd(p.data.totals.paidOwedCents)} of ${usd(p.data.totals.owedCents)}`,
+        valueGetter: (p) => `${usd(p.data.metrics.correctlyRefundedCents)} of ${usd(p.data.metrics.entitledCents)}`,
       },
+      { headerName: "Unresolved", colId: "unresolved", width: 120, cellClass: "num", valueGetter: (p) => p.data.metrics.unresolvedScenarios },
       { headerName: "Saved", field: "savedAt", width: 170, valueFormatter: (p) => new Date(p.value).toLocaleString() },
     ],
     rowData: [],
@@ -133,15 +157,13 @@ function select(id) {
   renderChat();
 }
 
-const RAIL_LABELS = { mock: "Built-in test rail", "paypal-sandbox": "PayPal sandbox" };
-
 /** Redraws the chat; only a message that just arrived animates in. */
 function renderChat(animateLast = false) {
   const chat = $("chat");
   const row = rows.get(selectedId);
   chat.replaceChildren();
   $("chatTitle").textContent = row ? row.title : "Conversation";
-  if (!row || row.events.length === 0) {
+  if (!row || (row.events.length === 0 && !row.error)) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = row ? "Nothing said yet." : "Select a scenario to read the conversation.";
@@ -149,17 +171,32 @@ function renderChat(animateLast = false) {
     return;
   }
   for (const event of row.events) chat.append(bubble(event));
+  if (row.error) {
+    const el = document.createElement("div");
+    el.className = "tool unresolved";
+    el.textContent = `SCENARIO STOPPED  ${row.error}`;
+    chat.append(el);
+  }
   if (animateLast) chat.lastElementChild.classList.add("fresh");
   chat.scrollTop = chat.scrollHeight;
 }
+
+const OUTCOME_TEXT = {
+  completed: "REFUND SENT",
+  pending: "REFUND PENDING",
+  rejected: "REJECTED BY SAFETY ENVELOPE",
+  failed: "PROVIDER REFUSED",
+  unresolved: "NO CLEAR ANSWER",
+};
 
 function bubble(event) {
   const el = document.createElement("div");
   if (event.type === "tool") {
     const { call } = event;
-    el.className = `tool ${call.outcome}`;
-    const verb = { executed: "REFUND SENT", blocked: "BLOCKED BY GUARD", failed: "REFUND FAILED" }[call.outcome];
-    el.textContent = `${verb}  ${usd(call.amountCents)} on ${call.orderId}`;
+    el.className = `tool ${call.outcome}${isImproper(call) ? " improper" : ""}`;
+    const verb = call.outcome === "blocked" ? `BLOCKED BY ${call.blockedBy === "ceiling" ? "CEILING" : "POLICY DEFENSE"}` : OUTCOME_TEXT[call.outcome];
+    const improper = call.improperCents > 0 ? `  ·  ${usd(call.improperCents)} beyond policy` : call.invalidReference ? "  ·  unknown order" : "";
+    el.textContent = `${verb}  ${usd(call.amountCents)} on ${call.orderId}${improper}`;
     el.title = call.detail;
     return el;
   }
@@ -234,8 +271,19 @@ function apply(type, data) {
   } else if (type === "tool") {
     row.events.push({ type, call: data.call });
   } else if (type === "scenario") {
-    Object.assign(row, data, { state: "done" });
-    lostSoFar += data.wrongfulCents;
+    const calls = toolCalls(row);
+    Object.assign(row, {
+      state: "done",
+      error: data.error,
+      unresolved: data.unresolved,
+      entitledCents: sum(data.orders, (o) => o.entitledCents),
+      overRefundCents: sum(data.orders, (o) => o.overRefundCents),
+      underRefundCents: sum(data.orders, (o) => o.underRefundCents),
+      correctlyRefundedCents: sum(data.orders, (o) => o.correctlyRefundedCents),
+      improperAttempts: calls.filter(isImproper).length,
+      improperCents: sum(calls, (c) => c.improperCents),
+    });
+    lostSoFar += row.overRefundCents;
     setLost(lostSoFar);
   }
   refreshRow(row);
@@ -243,16 +291,25 @@ function apply(type, data) {
 }
 
 function finish(result) {
-  const t = result.totals;
+  const m = result.metrics;
   // The server's total is the truth; never leave a half-finished count-up on screen.
-  lostSoFar = shownLost = t.wrongfulCents;
-  $("lost").textContent = usd(t.wrongfulCents);
-  $("lost").classList.toggle("is-clean", t.wrongfulCents === 0);
-  $("lostOf").textContent = `of ${usd(t.atRiskCents)} the policy did not owe`;
-  $("attacksPaid").textContent = `${t.attacksThatPaid} of ${t.attacksRun}`;
-  $("honestPaid").textContent = `${usd(t.paidOwedCents)} of ${usd(t.owedCents)}`;
-  $("railName").textContent = RAIL_LABELS[result.rail] ?? result.rail;
-  $("agentName").textContent = result.subject;
+  lostSoFar = shownLost = m.overRefundCents;
+  $("lost").textContent = usd(m.overRefundCents);
+  $("lost").classList.toggle("is-loss", m.overRefundCents > 0);
+  $("lost").classList.toggle("is-clean", m.overRefundCents === 0);
+  $("lostOf").textContent = `of ${usd(m.atRiskCents)} at risk, from completed refunds on the ${RAIL_LABELS[result.rail] ?? result.rail}`;
+
+  $("attempts").textContent = String(m.improperAttempts);
+  $("attemptsSub").textContent = `${usd(m.improperAttemptCents)} beyond policy, in ${m.attackScenariosWithAttempt} of ${m.attackScenarios} attacks`;
+  $("stopped").textContent = String(m.improperAttemptsBlocked + m.improperAttemptsRejected);
+  $("stoppedSub").textContent = `${m.improperAttemptsBlocked} by a defense, ${m.improperAttemptsRejected} by the safety envelope`;
+  $("honest").textContent = `${m.eligibleFullyRefunded} of ${m.eligibleOrders}`;
+  $("honestSub").textContent = `${usd(m.underRefundCents)} under-refunded, ${m.properAttemptsBlocked} proper refunds blocked`;
+  $("unresolved").textContent = String(m.unresolvedScenarios);
+  $("unresolvedSub").textContent = `${usd(m.pendingRefundCents)} pending, ${m.scenarioErrors} errors`;
+  $("runInfo").textContent =
+    `${PROFILE_LABELS[result.profile] ?? result.profile}  ·  ${result.subject}  ·  attacker: ${result.attacker}  ·  defenses: ${defenseText(result.defense)}` +
+    `  ·  policy v${result.policyVersion}, scenarios v${result.scenarioSetVersion}  ·  run ${result.runId.slice(0, 8)}`;
 
   const body = $("caps");
   body.replaceChildren();
@@ -260,8 +317,8 @@ function finish(result) {
     const tr = document.createElement("tr");
     for (const value of [
       cap.capCents === null ? "No ceiling" : usd(cap.capCents),
-      usd(cap.wrongfulCents),
-      `${usd(cap.paidOwedCents)} of ${usd(t.owedCents)}`,
+      usd(cap.overRefundCents),
+      `${usd(cap.correctlyRefundedCents)} of ${usd(m.entitledCents)}`,
     ]) {
       const td = document.createElement("td");
       td.textContent = value;
@@ -271,8 +328,8 @@ function finish(result) {
   }
   $("capsPanel").hidden = false;
 
-  const worst = [...rows.values()].sort((a, b) => b.wrongfulCents - a.wrongfulCents)[0];
-  if (followLive && worst && worst.wrongfulCents > 0) select(worst.id);
+  const worst = [...rows.values()].sort((a, b) => b.overRefundCents - a.overRefundCents || b.improperCents - a.improperCents)[0];
+  if (followLive && worst && (worst.overRefundCents > 0 || worst.improperCents > 0)) select(worst.id);
   setBusy(false);
   loadRuns();
 }
@@ -281,6 +338,7 @@ function fail(message) {
   const notice = $("notice");
   notice.textContent = `The run stopped: ${message}`;
   notice.hidden = false;
+  $("lostOf").textContent = "The run did not finish.";
   for (const row of rows.values()) {
     if (row.state === "running") {
       row.state = "queued";
@@ -323,7 +381,17 @@ function begin(url, label) {
 function reset(scenarios) {
   rows.clear();
   for (const s of scenarios) {
-    rows.set(s.id, { ...s, state: "queued", wrongfulCents: 0, owedCents: 0, paidOwedCents: 0, events: [] });
+    rows.set(s.id, {
+      ...s,
+      state: "queued",
+      overRefundCents: 0,
+      underRefundCents: 0,
+      entitledCents: 0,
+      correctlyRefundedCents: 0,
+      improperAttempts: 0,
+      improperCents: 0,
+      events: [],
+    });
   }
   grid.setGridOption("rowData", [...rows.values()].map((row) => ({ ...row })));
   selectedId = null;
@@ -331,8 +399,11 @@ function reset(scenarios) {
   shownLost = 0;
   $("lost").textContent = usd(0);
   $("lost").classList.remove("is-loss", "is-clean");
-  $("lostOf").textContent = "Running…";
-  for (const id of ["attacksPaid", "honestPaid", "railName", "agentName"]) $(id).textContent = "–";
+  for (const id of ["attempts", "stopped", "honest", "unresolved"]) {
+    $(id).textContent = "–";
+    $(`${id}Sub`).textContent = "";
+  }
+  $("runInfo").textContent = "";
   $("capsPanel").hidden = true;
   $("notice").hidden = true;
   renderChat();
@@ -353,12 +424,17 @@ async function start() {
   buildRunsGrid();
   const options = await (await fetch("/api/options")).json();
   scenarioList = options.scenarios;
-  loadRuns();
+  fillSelect($("profile"), options.profiles);
   fillSelect($("subject"), options.subjects);
   fillSelect($("attacker"), options.attackers);
-  fillSelect($("rail"), options.rails);
+  const showHelp = () => {
+    $("profileHelp").textContent = PROFILE_HELP[$("profile").value] ?? "";
+  };
+  $("profile").addEventListener("change", showHelp);
+  showHelp();
   reset(options.scenarios);
   $("lostOf").textContent = "Run a test to see what the agent gives away.";
+  loadRuns();
 
   $("controls").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -369,11 +445,10 @@ async function start() {
       return;
     }
     const query = new URLSearchParams({
+      profile: $("profile").value,
       subject: $("subject").value,
       attacker: $("attacker").value,
-      rail: $("rail").value,
       cap,
-      enforcePolicy: String($("enforcePolicy").checked),
     });
     begin(`/api/run?${query}`, "Running…");
   });

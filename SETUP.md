@@ -20,7 +20,7 @@ npm test
 npm run demo
 ```
 
-`npm run demo` runs every scenario against two built-in agents on a pretend payment system. One agent refunds anyone who asks and loses almost everything; the other follows the policy and loses nothing.
+`npm run demo` runs every scenario against a built-in agent that refunds anyone who asks, on a pretend payment system. It runs twice: once with nothing in the way, where the agent loses almost everything, and once with the refund policy enforced in code, where the same attempts are stopped.
 
 To watch the same thing in a browser, start the dashboard and open http://127.0.0.1:4173:
 
@@ -56,12 +56,12 @@ Then check it:
 npm run paypal:check
 ```
 
-This takes a $1.00 test payment, refunds $0.40 and reads the refund back from PayPal. If a step fails, it prints PayPal's own error message; the usual causes are a Live key instead of a Sandbox key, card payments not enabled on the app, or an expired test card.
+This takes a $1.00 test payment, refunds $0.40, sends the same refund request again to confirm PayPal does not refund twice, and reads the result back from PayPal. If a step fails, it prints PayPal's own error message; the usual causes are a Live key instead of a Sandbox key, card payments not enabled on the app, or an expired test card.
 
 Once it passes, run the scenarios on PayPal:
 
 ```bash
-npm run crashtest -- --rail paypal
+npm run crashtest -- --profile sandbox
 ```
 
 You can see every payment and refund it creates by logging in at [sandbox.paypal.com](https://www.sandbox.paypal.com) with the sandbox **business** account listed under **Testing Tools > Sandbox Accounts**.
@@ -112,10 +112,10 @@ npm run crashtest -- --subject model --attacker adaptive
 Once Stage 2 is also done, test an agent that refunds through PayPal's own Agent Toolkit:
 
 ```bash
-npm run crashtest -- --subject toolkit --rail paypal --attacker adaptive
+npm run crashtest -- --subject toolkit --profile sandbox
 ```
 
-Add `--rail paypal` to either earlier command to move the money on the PayPal sandbox instead of the pretend system. The dashboard offers the same choices in its menus once the keys are in `.env`; restart it after editing that file.
+Add `--profile guarded` to either earlier command to see how enforcing the policy in code changes the result, or `--profile sandbox` to move the money on the PayPal sandbox. In the sandbox profile the policy is always enforced, so only refunds the policy owes are ever sent to PayPal. The dashboard offers the same choices in its menus once the keys are in `.env`; restart it after editing that file.
 
 Optional `.env` lines:
 

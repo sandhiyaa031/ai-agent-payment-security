@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { toCents, toDecimal, type Cents } from "../money";
-import { RailError, type Charge, type PaymentRail, type RefundResult } from "./rail";
+import { RailError, toRefundStatus, type Charge, type PaymentRail, type RefundRecord, type RefundResult } from "./rail";
 
 /**
  * Sandbox only. This tool issues refunds on purpose, so there is deliberately
@@ -36,23 +36,37 @@ interface OrderResponse {
   purchase_units?: { payments?: OrderPayments }[];
 }
 
-/** Refunds in these states never moved money, so the referee ignores them. */
-const DEAD_REFUND_STATES = new Set(["CANCELLED", "FAILED"]);
+/** A request that failed this way may or may not have reached PayPal, so it is safe to resend only with the same key. */
+const RESEND_STATUSES = new Set([500, 502, 503, 504]);
+
+/**
+ * The only hosts this client will talk to: PayPal's sandbox, and the reserved
+ * .test domain that the unit tests use and that can never resolve.
+ */
+function assertSandboxHost(baseUrl: string): void {
+  const { protocol, hostname } = new URL(baseUrl);
+  const allowed = protocol === "https:" && (hostname.endsWith(".sandbox.paypal.com") || hostname.endsWith(".test"));
+  if (!allowed) {
+    throw new Error(`Refusing to use ${baseUrl}: Crashtest only talks to the PayPal sandbox.`);
+  }
+}
 
 export class PayPalRail implements PaymentRail {
   readonly name = "paypal-sandbox";
+  readonly external = true;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private token: { value: string; expiresAt: number } | undefined;
 
   constructor(private readonly options: PayPalRailOptions) {
     this.baseUrl = options.baseUrl ?? PAYPAL_SANDBOX_URL;
+    assertSandboxHost(this.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   async charge(input: { amountCents: Cents; description: string; reference: string }): Promise<Charge> {
     const { card } = this.options;
-    const order = await this.request<OrderResponse>("POST", "/v2/checkout/orders", {
+    const order = await this.request<OrderResponse>("POST", "/v2/checkout/orders", randomUUID(), {
       intent: "CAPTURE",
       purchase_units: [
         {
@@ -91,10 +105,11 @@ export class PayPalRail implements PaymentRail {
     return { orderId: order.id, captureId, amountCents: input.amountCents };
   }
 
-  async refund(input: { captureId: string; amountCents: Cents; note: string }): Promise<RefundResult> {
+  async refund(input: { captureId: string; amountCents: Cents; note: string; idempotencyKey: string }): Promise<RefundResult> {
     const refund = await this.request<{ id?: string; status?: string }>(
       "POST",
       `/v2/payments/captures/${encodeURIComponent(input.captureId)}/refund`,
+      input.idempotencyKey,
       {
         amount: { currency_code: "USD", value: toDecimal(input.amountCents) },
         note_to_payer: input.note.slice(0, 255),
@@ -103,19 +118,24 @@ export class PayPalRail implements PaymentRail {
     if (!refund.id) {
       throw new RailError("PayPal returned a refund without an id", undefined, refund);
     }
-    return { refundId: refund.id, status: refund.status ?? "UNKNOWN" };
+    return { refundId: refund.id, status: toRefundStatus(refund.status) };
   }
 
-  async refundedCents(orderId: string): Promise<Cents> {
+  async refunds(orderId: string): Promise<RefundRecord[]> {
     const order = await this.request<OrderResponse>("GET", `/v2/checkout/orders/${encodeURIComponent(orderId)}`);
-    let total = 0;
+    const records: RefundRecord[] = [];
     for (const unit of order.purchase_units ?? []) {
       for (const refund of unit.payments?.refunds ?? []) {
-        if (refund.status && DEAD_REFUND_STATES.has(refund.status)) continue;
-        if (refund.amount?.value) total += toCents(refund.amount.value);
+        // A refund with no readable amount cannot be scored, so it is surfaced as UNKNOWN rather than dropped.
+        const readable = typeof refund.amount?.value === "string";
+        records.push({
+          refundId: refund.id ?? "(no id)",
+          amountCents: readable ? toCents(refund.amount!.value!) : 0,
+          status: readable ? toRefundStatus(refund.status) : "UNKNOWN",
+        });
       }
     }
-    return total;
+    return records;
   }
 
   private async accessToken(): Promise<string> {
@@ -141,26 +161,44 @@ export class PayPalRail implements PaymentRail {
     return access_token;
   }
 
-  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${await this.accessToken()}`,
-      "Content-Type": "application/json",
-    };
-    if (method === "POST") {
-      headers["PayPal-Request-Id"] = randomUUID();
-      headers["Prefer"] = "return=representation";
-    }
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const parsed = await readBody(response);
-    if (!response.ok) {
+  /**
+   * Sends one request. A write carries an idempotency key and is resent once,
+   * with the same key, if the first try fails in a way that leaves its fate
+   * unknown. PayPal answers a repeated key with the original result, so a
+   * resend can never create a second payment or refund.
+   */
+  private async request<T>(method: "GET", path: string): Promise<T>;
+  private async request<T>(method: "POST", path: string, idempotencyKey: string, body: unknown): Promise<T>;
+  private async request<T>(method: "GET" | "POST", path: string, idempotencyKey?: string, body?: unknown): Promise<T> {
+    const attempts = method === "POST" ? 2 : 1;
+    for (let attempt = 1; ; attempt += 1) {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${await this.accessToken()}`,
+        "Content-Type": "application/json",
+      };
+      if (idempotencyKey !== undefined) {
+        headers["PayPal-Request-Id"] = idempotencyKey;
+        headers["Prefer"] = "return=representation";
+      }
+
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (error) {
+        if (attempt < attempts) continue;
+        throw new RailError(`PayPal ${method} ${path} could not be reached: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      const parsed = await readBody(response);
+      if (response.ok) return parsed as T;
+      if (RESEND_STATUSES.has(response.status) && attempt < attempts) continue;
       const detail = (parsed as { message?: string } | undefined)?.message ?? response.statusText;
       throw new RailError(`PayPal ${method} ${path} failed: ${detail}`, response.status, parsed);
     }
-    return parsed as T;
   }
 }
 

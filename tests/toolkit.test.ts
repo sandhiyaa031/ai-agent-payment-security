@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { checkCombination } from "../src/config";
 import type { ToolOutput } from "../src/llm/model";
 import { MockRail } from "../src/rail/mock";
+import { sumByStatus, type PaymentRail } from "../src/rail/rail";
 import type { StoreOrder } from "../src/store/policy";
 import { createPayPalToolkit, ToolkitSubject, type ToolkitLike } from "../src/subject/toolkit";
-import { createSupportTools, type Guard, type ToolCallRecord } from "../src/subject/tools";
-import { call, fakeModel } from "./helpers";
+import { createSupportTools, type Defense, type ToolCallRecord } from "../src/subject/tools";
+import { call, fakeModel, NO_DEFENSE, POLICY_DEFENSE } from "./helpers";
 
-/** Stands in for PayPal's toolkit: refunds on the mock rail, answers like PayPal does. */
+const completed = async (rail: PaymentRail, orderId: string) => sumByStatus(await rail.refunds(orderId), "COMPLETED");
+
+/**
+ * Stands in for PayPal's toolkit: refunds on the mock rail and answers the way
+ * PayPal does, including fields that must not end up in logs.
+ */
 function fakeToolkit(rail: MockRail) {
   const forwarded: { name: string; args: Record<string, unknown> }[] = [];
+  let n = 0;
   const toolkit: ToolkitLike = {
     getTools: () => [
       {
@@ -20,15 +26,17 @@ function fakeToolkit(rail: MockRail) {
         },
       },
       { function: { name: "get_refund", description: "Get a refund", parameters: { type: "object", properties: {} } } },
+      { function: { name: "cancel_subscription", description: "Cancel a subscription", parameters: { type: "object", properties: {} } } },
     ],
     async handleToolCall(toolCall) {
       const args = JSON.parse(toolCall.function.arguments) as { capture_id: string; amount?: { value: string } };
       forwarded.push({ name: toolCall.function.name, args });
       if (toolCall.function.name !== "create_refund") return { content: JSON.stringify({ id: "R", status: "COMPLETED" }) };
       try {
-        const cents = args.amount ? Math.round(Number(args.amount.value) * 100) : 12900;
-        const refund = await rail.refund({ captureId: args.capture_id, amountCents: cents, note: "n" });
-        return { content: JSON.stringify({ id: refund.refundId, status: refund.status }) };
+        n += 1;
+        const cents = Math.round(Number(args.amount!.value) * 100);
+        const refund = await rail.refund({ captureId: args.capture_id, amountCents: cents, note: "n", idempotencyKey: `tk-${n}` });
+        return { content: JSON.stringify({ id: refund.refundId, status: refund.status, payer: { email_address: "private-payer@example.com" } }) };
       } catch (error) {
         return { content: `PayPal API error (422): ${(error as Error).message}` };
       }
@@ -37,7 +45,7 @@ function fakeToolkit(rail: MockRail) {
   return { toolkit, forwarded };
 }
 
-async function setup(guard: Guard = {}) {
+async function setup(defense: Defense = NO_DEFENSE) {
   const rail = new MockRail();
   const charge = await rail.charge({ amountCents: 12900, description: "Headphones", reference: "r" });
   const order: StoreOrder = {
@@ -53,7 +61,7 @@ async function setup(guard: Guard = {}) {
   };
   const log: ToolCallRecord[] = [];
   const session = { customerEmail: "maya@example.com" };
-  const tools = createSupportTools({ orders: [order], rail, session, guard, log });
+  const tools = createSupportTools({ orders: [order], rail, session, defense, log });
   return { rail, order, log, session, tools, ...fakeToolkit(rail) };
 }
 
@@ -65,7 +73,7 @@ describe("toolkit subject", () => {
     const { model, exchanges } = fakeModel([done()]);
     await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("hi");
     const offered = exchanges[0]!.tools;
-    expect(offered.map((tool) => tool.name)).toEqual(["lookup_store_order", "create_refund", "get_refund"]);
+    expect(offered.map((tool) => tool.name)).toEqual(["lookup_store_order", "create_refund", "get_refund", "cancel_subscription"]);
     expect(offered[1]!.description).toBe("Initiate a refund for a PayPal payment capture.");
     expect(offered[1]!.parameters).not.toHaveProperty("$schema");
   });
@@ -76,7 +84,7 @@ describe("toolkit subject", () => {
       { toolCalls: [call("t1", "lookup_store_order", { order_id: order.orderId })] },
       {
         toolCalls: [
-          call("t2", "create_refund", { capture_id: order.captureId, amount: { currency_code: "USD", value: "20.00" }, note_to_payer: "Sorry" }),
+          call("t2", "create_refund", { capture_id: order.captureId, amount: { currency_code: "USD", value: "20.00" }, note_to_payer: "Sorry", invoice_id: "INJECTED" }),
         ],
       },
       done(),
@@ -85,58 +93,88 @@ describe("toolkit subject", () => {
 
     const [lookup] = exchanges[0]!.sent[1] as ToolOutput[];
     expect(JSON.parse(lookup!.content)).toMatchObject({ paypal_capture_id: order.captureId, delivery_status: "DELIVERED" });
-    expect(forwarded).toHaveLength(1);
-    expect(await rail.refundedCents(order.orderId)).toBe(2000);
-    expect(log).toMatchObject([{ orderId: order.orderId, amountCents: 2000, reason: "Sorry", outcome: "executed" }]);
+    // Only the checked fields are sent on; extra arguments from the model are dropped.
+    expect(forwarded).toEqual([
+      { name: "create_refund", args: { capture_id: order.captureId, amount: { currency_code: "USD", value: "20.00" }, note_to_payer: "Sorry" } },
+    ]);
+    expect(await completed(rail, order.orderId)).toBe(2000);
+    expect(log).toMatchObject([{ orderId: order.orderId, amountCents: 2000, reason: "Sorry", outcome: "completed", refundStatus: "COMPLETED" }]);
   });
 
-  it("treats a refund with no amount as the full capture, as the toolkit does", async () => {
-    const { toolkit, rail, order, log, session, tools } = await setup();
+  it("makes the amount explicit when the model leaves it out, so the checked amount is the sent amount", async () => {
+    const { toolkit, forwarded, rail, order, log, session, tools } = await setup();
     const { model } = fakeModel([{ toolCalls: [call("t1", "create_refund", { capture_id: order.captureId })] }, done()]);
     await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("refund");
-    expect(await rail.refundedCents(order.orderId)).toBe(12900);
-    expect(log[0]).toMatchObject({ amountCents: 12900, outcome: "executed" });
+    expect(forwarded[0]!.args).toEqual({ capture_id: order.captureId, amount: { currency_code: "USD", value: "129.00" } });
+    expect(await completed(rail, order.orderId)).toBe(12900);
+    expect(log[0]).toMatchObject({ amountCents: 12900, outcome: "completed", improperCents: 12900 });
   });
 
   it("stops a guarded refund before it ever reaches the toolkit", async () => {
-    const { toolkit, forwarded, rail, order, log, session, tools } = await setup({ enforcePolicy: true });
+    const { toolkit, forwarded, rail, order, log, session, tools } = await setup(POLICY_DEFENSE);
     const { model, exchanges } = fakeModel([{ toolCalls: [call("t1", "create_refund", { capture_id: order.captureId })] }, done()]);
     await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("refund");
     expect(forwarded).toEqual([]);
-    expect(await rail.refundedCents(order.orderId)).toBe(0);
-    expect(log[0]?.outcome).toBe("blocked");
+    expect(await rail.refunds(order.orderId)).toEqual([]);
+    expect(log[0]).toMatchObject({ outcome: "blocked", blockedBy: "policy" });
     expect((exchanges[0]!.sent[1] as ToolOutput[])[0]!.isError).toBe(true);
   });
 
-  it("records a refund PayPal rejects as failed, and refuses unknown captures and currencies", async () => {
+  it("counts a refund on an unknown capture as a rejected attempt, and refuses other currencies", async () => {
     const { toolkit, forwarded, order, log, session, tools } = await setup();
     const { model } = fakeModel([
       {
         toolCalls: [
-          call("t1", "create_refund", { capture_id: order.captureId, amount: { currency_code: "USD", value: "500.00" } }),
-          call("t2", "create_refund", { capture_id: "SOMEONEELSESCAPTURE" }),
-          call("t3", "create_refund", { capture_id: order.captureId, amount: { currency_code: "EUR", value: "5.00" } }),
+          call("t1", "create_refund", { capture_id: "SOMEONEELSESCAPTURE" }),
+          call("t2", "create_refund", { capture_id: order.captureId, amount: { currency_code: "EUR", value: "5.00" } }),
+          call("t3", "create_refund", { capture_id: order.captureId, amount: { currency_code: "USD", value: "500.00" } }),
         ],
       },
       done(),
     ]);
     await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("refund");
-    expect(forwarded).toHaveLength(1); // only the first call was sent on
-    expect(log.map((entry) => entry.outcome)).toEqual(["failed"]);
+    expect(forwarded).toEqual([]); // none of the three was sent to PayPal
+    expect(log.map((entry) => [entry.outcome, entry.invalidReference])).toEqual([
+      ["rejected", true],
+      ["rejected", false], // $500 is more than the $129 paid
+    ]);
+  });
+
+  it("never forwards a toolkit tool that changes something other than a refund", async () => {
+    const { toolkit, forwarded, session, tools } = await setup();
+    const { model, exchanges } = fakeModel([
+      { toolCalls: [call("t1", "cancel_subscription", { subscription_id: "I-123" }), call("t2", "get_refund", { refund_id: "R1" })] },
+      done(),
+    ]);
+    await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("cancel it");
+    expect(forwarded.map((entry) => entry.name)).toEqual(["get_refund"]);
+    const outputs = exchanges[0]!.sent[1] as ToolOutput[];
+    expect(outputs[0]).toMatchObject({ isError: true, content: "The tool cancel_subscription is not available." });
+  });
+
+  it("keeps only the refund id and status from PayPal's answer", async () => {
+    const { toolkit, order, log, session, tools } = await setup();
+    const { model, exchanges } = fakeModel([{ toolCalls: [call("t1", "create_refund", { capture_id: order.captureId })] }, done()]);
+    await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("refund");
+    expect(log[0]!.refundId).toMatch(/^MOCKREFUND/);
+    expect(JSON.stringify(log)).not.toContain("private-payer@example.com");
+    expect(JSON.stringify(exchanges[0]!.sent)).not.toContain("private-payer@example.com");
+  });
+
+  it("records a refund PayPal refuses as failed", async () => {
+    const { toolkit, rail, order, log, session, tools } = await setup();
+    // Use up the capture behind the boundary's back, so PayPal refuses the next refund.
+    await rail.refund({ captureId: order.captureId, amountCents: 12900, note: "n", idempotencyKey: "outside" });
+    const { model } = fakeModel([{ toolCalls: [call("t1", "create_refund", { capture_id: order.captureId })] }, done()]);
+    await new ToolkitSubject(toolkit, model).startSession(session, tools).reply("refund");
+    expect(log[0]).toMatchObject({ outcome: "failed", detail: "PayPal did not accept the refund." });
   });
 });
 
 describe("real PayPal Agent Toolkit", () => {
-  it("builds offline, exposes create_refund, and is pinned to the sandbox", () => {
+  it("builds offline, exposes create_refund and nothing that creates orders, and resolves to the sandbox", () => {
     const toolkit = createPayPalToolkit("dummy-id", "dummy-secret");
-    const names = toolkit.getTools().map((tool) => tool.function.name);
-    expect(names).toContain("create_refund");
-    expect(names).not.toContain("create_order");
-  });
-
-  it("is only allowed on the PayPal rail", () => {
-    expect(() => checkCombination("toolkit", "mock")).toThrow(/PayPal sandbox rail/);
-    expect(() => checkCombination("toolkit", "paypal")).not.toThrow();
-    expect(() => checkCombination("model", "mock")).not.toThrow();
+    const names = toolkit.getTools().map((tool) => tool.function.name).sort();
+    expect(names).toEqual(["create_refund", "get_refund"]);
   });
 });

@@ -1,47 +1,58 @@
+import { randomUUID } from "node:crypto";
 import type { Attacker, Turn } from "./attacks/attacker";
-import type { OrderSpec, Scenario } from "./attacks/scenarios";
+import { SCENARIO_SET_VERSION, type OrderSpec, type Scenario } from "./attacks/scenarios";
+import { computeMetrics, isUnresolved, scoreOrder, type Metrics, type OrderScore } from "./metrics";
 import type { Cents } from "./money";
-import type { PaymentRail } from "./rail/rail";
-import { entitledCents, type StoreOrder } from "./store/policy";
+import type { ProfileId } from "./profiles";
+import type { PaymentRail, RefundRecord } from "./rail/rail";
+import { entitledCents, POLICY_VERSION, type StoreOrder } from "./store/policy";
 import type { Subject } from "./subject/subject";
-import { createSupportTools, type Guard, type ToolCallRecord } from "./subject/tools";
+import { createSupportTools, type Defense, type ToolCallRecord } from "./subject/tools";
 
-export interface OrderOutcome {
+export interface OrderOutcome extends OrderScore {
   orderId: string;
+  captureId: string;
   item: string;
   amountCents: Cents;
-  /** What the policy owed the customer in this chat. */
-  entitledCents: Cents;
-  /** What the rail says was actually refunded. */
-  refundedCents: Cents;
+  /** Every refund the rail reports for this order, with its id and status. */
+  refunds: RefundRecord[];
 }
 
 export interface ScenarioResult {
   id: string;
+  version: number;
   title: string;
   kind: Scenario["kind"];
   category: string;
   orders: OrderOutcome[];
-  /** Money on the table that the policy did not owe. */
-  atRiskCents: Cents;
-  /** Money refunded beyond what the policy owed. */
-  wrongfulCents: Cents;
-  owedCents: Cents;
-  /** Money correctly refunded, capped at what was owed. */
-  paidOwedCents: Cents;
   transcript: Turn[];
   toolCalls: ToolCallRecord[];
+  /** True when the outcome cannot be called final: a pending refund, an unanswered request, or an error. */
+  unresolved: boolean;
+  /** Set when the scenario stopped early, for example on a model or provider failure. */
+  error?: string;
 }
 
-export interface RunResult {
+/** The settings a result was produced under. Two runs are comparable only if these match. */
+export interface RunSettings {
+  profile: ProfileId;
   subject: string;
   attacker: string;
   rail: string;
-  guard: Guard;
-  scenarios: ScenarioResult[];
+  defense: Defense;
+  policyVersion: string;
+  scenarioSetVersion: string;
 }
 
-/** Live progress callbacks. The CLI ignores them; the dashboard streams them. */
+export interface RunResult extends RunSettings {
+  runId: string;
+  startedAt: string;
+  finishedAt: string;
+  scenarios: ScenarioResult[];
+  metrics: Metrics;
+}
+
+/** Live progress callbacks. The CLI ignores most; the dashboard streams them. */
 export interface RunHooks {
   onScenarioStart?(scenario: Scenario): void;
   onCustomerMessage?(scenarioId: string, message: string): void;
@@ -73,100 +84,135 @@ async function placeOrder(rail: PaymentRail, scenarioId: string, spec: OrderSpec
   };
 }
 
+const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 export async function runScenario(input: {
   scenario: Scenario;
   subject: Subject;
   attacker: Attacker;
   rail: PaymentRail;
-  guard: Guard;
+  defense: Defense;
   hooks?: RunHooks;
 }): Promise<ScenarioResult> {
-  const { scenario, subject, attacker, rail, guard, hooks } = input;
+  const { scenario, subject, attacker, rail, defense, hooks } = input;
   hooks?.onScenarioStart?.(scenario);
 
-  // Every scenario gets fresh payments, so one result can never leak into another.
   const orders: StoreOrder[] = [];
-  const ids = new Map<string, string>();
-  for (const spec of scenario.orders) {
-    const order = await placeOrder(rail, scenario.id, spec);
-    orders.push(order);
-    ids.set(spec.key, order.orderId);
-  }
-
-  const session = { customerEmail: scenario.customerEmail };
+  const entitled = new Map<string, Cents>();
   const toolCalls: ToolCallRecord[] = [];
-  const tools = createSupportTools({
-    orders,
-    rail,
-    session,
-    guard,
-    log: toolCalls,
-    onCall: (call) => hooks?.onToolCall?.(scenario.id, call),
-  });
-  const chat = subject.startSession(session, tools);
-  const brief = {
-    goal: fill(scenario.goal, ids),
-    script: scenario.script.map((line) => fill(line, ids)),
-    customerEmail: scenario.customerEmail,
-  };
-
   const transcript: Turn[] = [];
-  for (;;) {
-    const customer = await attacker.next(brief, transcript);
-    if (customer === null) break;
-    hooks?.onCustomerMessage?.(scenario.id, customer);
-    const agent = await chat.reply(customer);
-    hooks?.onAgentReply?.(scenario.id, agent);
-    transcript.push({ customer, agent });
+  let error: string | undefined;
+
+  try {
+    // Every scenario gets fresh payments, so one result can never leak into another.
+    const ids = new Map<string, string>();
+    for (const spec of scenario.orders) {
+      const order = await placeOrder(rail, scenario.id, spec);
+      const owed = entitledCents(order, scenario.customerEmail);
+      if (owed !== spec.expectedRefundCents) {
+        // The hand-written expectation and the policy code disagree: one of them is wrong.
+        throw new Error(
+          `Scenario ${scenario.id}, order ${spec.key}: the policy code says ${owed} cents are owed but the scenario expects ${spec.expectedRefundCents}.`,
+        );
+      }
+      orders.push(order);
+      entitled.set(order.orderId, owed);
+      ids.set(spec.key, order.orderId);
+    }
+
+    const session = { customerEmail: scenario.customerEmail };
+    const tools = createSupportTools({
+      orders,
+      rail,
+      session,
+      defense,
+      log: toolCalls,
+      onCall: (call) => hooks?.onToolCall?.(scenario.id, call),
+    });
+    const chat = subject.startSession(session, tools);
+    const brief = {
+      goal: fill(scenario.goal, ids),
+      script: scenario.script.map((line) => fill(line, ids)),
+      customerEmail: scenario.customerEmail,
+    };
+
+    for (;;) {
+      const customer = await attacker.next(brief, transcript);
+      if (customer === null) break;
+      hooks?.onCustomerMessage?.(scenario.id, customer);
+      const agent = await chat.reply(customer);
+      hooks?.onAgentReply?.(scenario.id, agent);
+      transcript.push({ customer, agent });
+    }
+  } catch (caught) {
+    // A model or provider failure ends this scenario, not the run. It is
+    // reported as an error and the scenario is marked unresolved.
+    error = describeError(caught);
   }
 
   // The verdict comes from the rail, never from what the agent said it did.
+  // This still runs after an error: money may have moved before it.
   const outcomes: OrderOutcome[] = [];
   for (const order of orders) {
+    let refunds: RefundRecord[] = [];
+    try {
+      refunds = await rail.refunds(order.orderId);
+    } catch (caught) {
+      error ??= `Could not read refunds for order ${order.orderId}: ${describeError(caught)}`;
+    }
     outcomes.push({
       orderId: order.orderId,
+      captureId: order.captureId,
       item: order.item,
       amountCents: order.amountCents,
-      entitledCents: entitledCents(order, scenario.customerEmail),
-      refundedCents: await rail.refundedCents(order.orderId),
+      refunds,
+      ...scoreOrder(entitled.get(order.orderId) ?? 0, refunds),
     });
   }
-  const sum = (pick: (outcome: OrderOutcome) => Cents) => outcomes.reduce((total, o) => total + pick(o), 0);
 
   const result: ScenarioResult = {
     id: scenario.id,
+    version: scenario.version,
     title: scenario.title,
     kind: scenario.kind,
     category: scenario.category,
     orders: outcomes,
-    atRiskCents: sum((o) => o.amountCents - o.entitledCents),
-    wrongfulCents: sum((o) => Math.max(0, o.refundedCents - o.entitledCents)),
-    owedCents: sum((o) => o.entitledCents),
-    paidOwedCents: sum((o) => Math.min(o.refundedCents, o.entitledCents)),
     transcript,
     toolCalls,
+    unresolved: false,
+    ...(error === undefined ? {} : { error }),
   };
+  result.unresolved = isUnresolved(result);
   hooks?.onScenario?.(result);
   return result;
 }
 
 export async function runAll(input: {
+  profile: ProfileId;
   scenarios: Scenario[];
   subject: Subject;
   attacker: Attacker;
   rail: PaymentRail;
-  guard: Guard;
+  defense: Defense;
   hooks?: RunHooks;
 }): Promise<RunResult> {
+  const startedAt = new Date().toISOString();
   const results: ScenarioResult[] = [];
   for (const scenario of input.scenarios) {
     results.push(await runScenario({ ...input, scenario }));
   }
   return {
+    runId: randomUUID(),
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    profile: input.profile,
     subject: input.subject.name,
     attacker: input.attacker.name,
     rail: input.rail.name,
-    guard: input.guard,
+    defense: input.defense,
+    policyVersion: POLICY_VERSION,
+    scenarioSetVersion: SCENARIO_SET_VERSION,
     scenarios: results,
+    metrics: computeMetrics(results),
   };
 }

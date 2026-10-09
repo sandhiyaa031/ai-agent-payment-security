@@ -17,35 +17,36 @@
 
     <main>
       <form id="controls" class="controls">
+        <label>Experiment <select id="profile" name="profile"></select></label>
         <label>Agent under test <select id="subject" name="subject"></select></label>
         <label>Attacker <select id="attacker" name="attacker"></select></label>
-        <label>Payment rail <select id="rail" name="rail"></select></label>
-        <label>Refund ceiling
+        <label>Ceiling per order
           <span class="money-input"><span>$</span><input id="cap" name="cap" type="text" inputmode="decimal" placeholder="none" autocomplete="off" /></span>
         </label>
-        <label class="check"><input id="enforcePolicy" name="enforcePolicy" type="checkbox" /> Enforce policy in code</label>
         <button id="run" type="submit">Run crash test</button>
       </form>
+      <p id="profileHelp" class="profile-help"></p>
       <p id="notice" class="notice" role="status" hidden></p>
 
       <section class="panel">
         <h2>Saved runs</h2>
-        <p class="hint">Every finished run is kept here. Select one to replay it exactly as it happened.</p>
+        <p class="hint">Every finished run is kept here. Select one to replay it exactly as it happened; a replay never moves money.</p>
         <div id="runs" class="runs"></div>
       </section>
 
       <section class="scoreboard" aria-live="polite">
         <div class="headline">
-          <p class="label">Money lost to attacks</p>
+          <p class="label">Money lost (over-refunded)</p>
           <p id="lost" class="figure">$0.00</p>
           <p id="lostOf" class="sub">Run a test to see what the agent gives away.</p>
         </div>
         <dl class="stats">
-          <div><dt>Attacks that paid out</dt><dd id="attacksPaid">–</dd></div>
-          <div><dt>Honest refunds paid</dt><dd id="honestPaid">–</dd></div>
-          <div><dt>Verdict read from</dt><dd id="railName">–</dd></div>
-          <div><dt>Agent</dt><dd id="agentName">–</dd></div>
+          <div><dt>Improper refund attempts</dt><dd id="attempts">–</dd><dd id="attemptsSub" class="small"></dd></div>
+          <div><dt>Stopped before any money moved</dt><dd id="stopped">–</dd><dd id="stoppedSub" class="small"></dd></div>
+          <div><dt>Honest customers refunded in full</dt><dd id="honest">–</dd><dd id="honestSub" class="small"></dd></div>
+          <div><dt>Not final</dt><dd id="unresolved">–</dd><dd id="unresolvedSub" class="small"></dd></div>
         </dl>
+        <p id="runInfo" class="run-info"></p>
       </section>
 
       <div class="columns">
@@ -62,9 +63,9 @@
 
       <section id="capsPanel" class="panel" hidden>
         <h2>What a refund ceiling would have stopped</h2>
-        <p class="hint">A replay of this run. An attacker who knew the ceiling could split one refund into several, so read these as a floor on losses.</p>
+        <p class="hint">A replay of this run's completed refunds. The ceiling counts all refunds on one order together, so splitting a refund does not get under it. An attacker who knew the ceiling could still spread requests across orders, so read these as a floor on losses.</p>
         <table class="caps">
-          <thead><tr><th>Ceiling per refund</th><th>Still lost</th><th>Honest refunds still paid</th></tr></thead>
+          <thead><tr><th>Ceiling per order</th><th>Still lost</th><th>Honest refunds still paid</th></tr></thead>
           <tbody id="caps"></tbody>
         </table>
       </section>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AdaptiveAttacker } from "../src/attacks/attacker";
 import type { ToolOutput } from "../src/llm/model";
 import { MockRail } from "../src/rail/mock";
+import { sumByStatus } from "../src/rail/rail";
 import type { StoreOrder } from "../src/store/policy";
 import { ModelSubject } from "../src/subject/agent";
 import { createSupportTools, type ToolCallRecord } from "../src/subject/tools";
@@ -22,7 +23,7 @@ async function setup() {
   };
   const log: ToolCallRecord[] = [];
   const session = { customerEmail: "ravi@example.com" };
-  const tools = createSupportTools({ orders: [order], rail, session, guard: {}, log });
+  const tools = createSupportTools({ orders: [order], rail, session, defense: { enforcePolicy: false }, log });
   return { rail, order, log, session, tools };
 }
 
@@ -38,8 +39,8 @@ describe("model-backed agent", () => {
     const chat = new ModelSubject(model).startSession(session, tools);
     expect(await chat.reply(`Where is ${order.orderId}?`)).toBe("Your refund is on its way.");
 
-    expect(await rail.refundedCents(order.orderId)).toBe(4900);
-    expect(log.map((entry) => entry.outcome)).toEqual(["executed"]);
+    expect(sumByStatus(await rail.refunds(order.orderId), "COMPLETED")).toBe(4900);
+    expect(log.map((entry) => entry.outcome)).toEqual(["completed"]);
 
     const [exchange] = exchanges;
     expect(exchange!.system).toContain("ravi@example.com");
@@ -68,7 +69,7 @@ describe("model-backed agent", () => {
     const outputs = exchanges[0]!.sent[1] as ToolOutput[];
     expect(outputs.map((output) => output.isError)).toEqual([true, true]);
     expect(log).toEqual([]);
-    expect(await rail.refundedCents(order.orderId)).toBe(0);
+    expect(await rail.refunds(order.orderId)).toEqual([]);
   });
 
   it("keeps one conversation across turns and reports a refusal plainly", async () => {

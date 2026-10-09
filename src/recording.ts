@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { capAnalysis, totals, type CapRow, type Totals } from "./report";
-import type { RunHooks, RunResult } from "./runner";
-import type { Guard } from "./subject/tools";
+import type { Metrics } from "./metrics";
+import { capAnalysis, REPLAY_CAPS, type CapRow } from "./report";
+import type { RunHooks, RunResult, RunSettings } from "./runner";
 
 /** One step of a run, in the shape the dashboard consumes live or on replay. */
 export interface RunEvent {
@@ -10,19 +10,31 @@ export interface RunEvent {
   data: unknown;
 }
 
-export interface Recording {
+/** Bump when the shape of a recording changes. Files with another version are not listed. */
+export const RECORDING_SCHEMA = 2;
+
+/**
+ * A finished run as evidence: the settings it ran under, every message, every
+ * refund attempt with its outcome and refund id, what the rail reported for
+ * each order, and the metrics computed from that.
+ *
+ * It holds nothing from .env. No key, token or card detail is ever placed in
+ * an event, so there is nothing to strip out afterwards.
+ */
+export interface Recording extends RunSettings {
+  schema: number;
+  runId: string;
+  startedAt: string;
+  finishedAt: string;
   savedAt: string;
-  subject: string;
-  attacker: string;
-  rail: string;
-  guard: Guard;
-  totals: Totals;
+  harnessVersion: string;
+  metrics: Metrics;
   events: RunEvent[];
 }
 
 export interface RecordingSummary extends Omit<Recording, "events"> {
   id: string;
-  /** "featured" recordings ship with the repo; "local" ones are this machine's own runs. */
+  /** "featured" recordings ship with the repository; "local" ones are this machine's own runs. */
   source: string;
 }
 
@@ -31,8 +43,6 @@ export interface RecordingDir {
   dir: string;
 }
 
-const REPLAY_CAPS = [2500, 5000, 10000, 20000, null];
-
 /** Turns runner callbacks into dashboard events. */
 export function eventHooks(emit: (event: RunEvent) => void): RunHooks {
   return {
@@ -40,43 +50,27 @@ export function eventHooks(emit: (event: RunEvent) => void): RunHooks {
     onCustomerMessage: (id, message) => emit({ event: "customer", data: { id, message } }),
     onToolCall: (id, call) => emit({ event: "tool", data: { id, call } }),
     onAgentReply: (id, message) => emit({ event: "agent", data: { id, message } }),
+    // The conversation already travelled as its own events, so the summary leaves it out.
     onScenario: ({ transcript: _transcript, toolCalls: _toolCalls, ...summary }) => emit({ event: "scenario", data: summary }),
   };
 }
 
-export interface DoneData {
-  subject: string;
-  attacker: string;
-  rail: string;
-  guard: Guard;
-  totals: Totals;
+export interface DoneData extends RunSettings {
+  runId: string;
+  startedAt: string;
+  finishedAt: string;
+  metrics: Metrics;
   caps: CapRow[];
 }
 
 export function doneEvent(run: RunResult): { event: "done"; data: DoneData } {
-  return {
-    event: "done",
-    data: {
-      subject: run.subject,
-      attacker: run.attacker,
-      rail: run.rail,
-      guard: run.guard,
-      totals: totals(run),
-      caps: capAnalysis(run, REPLAY_CAPS),
-    },
-  };
+  const { scenarios: _scenarios, ...rest } = run;
+  return { event: "done", data: { ...rest, caps: capAnalysis(run, REPLAY_CAPS) } };
 }
 
-export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date): Recording {
-  return {
-    savedAt: savedAt.toISOString(),
-    subject: run.subject,
-    attacker: run.attacker,
-    rail: run.rail,
-    guard: run.guard,
-    totals: totals(run),
-    events,
-  };
+export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date, harnessVersion: string): Recording {
+  const { scenarios: _scenarios, ...rest } = run;
+  return { schema: RECORDING_SCHEMA, ...rest, savedAt: savedAt.toISOString(), harnessVersion, events };
 }
 
 /** Saves a recording as <name>.json and returns the path. Names are reduced to a-z, 0-9 and dashes. */
@@ -92,7 +86,8 @@ export function saveRecording(dir: string, name: string, recording: Recording): 
 function read(path: string): Recording | undefined {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<Recording>;
-    return Array.isArray(parsed.events) && parsed.totals && parsed.subject ? (parsed as Recording) : undefined;
+    const usable = parsed.schema === RECORDING_SCHEMA && Array.isArray(parsed.events) && parsed.metrics && parsed.runId;
+    return usable ? (parsed as Recording) : undefined;
   } catch {
     return undefined;
   }

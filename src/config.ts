@@ -1,10 +1,13 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AdaptiveAttacker, ScriptedAttacker, type Attacker } from "./attacks/attacker";
 import { createModel, modelConfigured } from "./llm";
 import { MockRail } from "./rail/mock";
 import { PayPalRail } from "./rail/paypal";
 import type { PaymentRail } from "./rail/rail";
 import { ModelSubject } from "./subject/agent";
-import { GullibleSubject, StrictSubject } from "./subject/scripted";
+import { GullibleSubject, RefuseAllSubject, StrictSubject } from "./subject/scripted";
 import type { Subject } from "./subject/subject";
 import { createPayPalToolkit, ToolkitSubject } from "./subject/toolkit";
 
@@ -17,6 +20,12 @@ export function loadEnv(): void {
   }
 }
 
+/** The version in package.json, recorded with every run. */
+export function harnessVersion(): string {
+  const path = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+  return (JSON.parse(readFileSync(path, "utf8")) as { version: string }).version;
+}
+
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -25,39 +34,31 @@ function required(name: string): string {
   return value;
 }
 
-/** The toolkit agent refunds through PayPal itself, so a pretend rail would never see the money move. */
-export function checkCombination(subject: string, rail: string): void {
-  if (subject === "toolkit" && rail !== "paypal") {
-    throw new Error("The toolkit agent moves money through PayPal directly, so it needs the PayPal sandbox rail.");
-  }
-}
-
-export function createRail(kind: string): PaymentRail {
+/** The rail is chosen by the evaluation profile (see profiles.ts), never directly by a user setting. */
+export function createRail(kind: "mock" | "paypal"): PaymentRail {
   if (kind === "mock") return new MockRail();
-  if (kind === "paypal") {
-    return new PayPalRail({
-      clientId: required("PAYPAL_CLIENT_ID"),
-      clientSecret: required("PAYPAL_CLIENT_SECRET"),
-      card: {
-        number: required("PAYPAL_TEST_CARD_NUMBER"),
-        expiry: required("PAYPAL_TEST_CARD_EXPIRY"),
-        securityCode: required("PAYPAL_TEST_CARD_CVV"),
-        name: process.env["PAYPAL_TEST_CARD_NAME"]?.trim() || "Test Buyer",
-      },
-    });
-  }
-  throw new Error(`Unknown rail "${kind}". Use mock or paypal.`);
+  return new PayPalRail({
+    clientId: required("PAYPAL_CLIENT_ID"),
+    clientSecret: required("PAYPAL_CLIENT_SECRET"),
+    card: {
+      number: required("PAYPAL_TEST_CARD_NUMBER"),
+      expiry: required("PAYPAL_TEST_CARD_EXPIRY"),
+      securityCode: required("PAYPAL_TEST_CARD_CVV"),
+      name: process.env["PAYPAL_TEST_CARD_NAME"]?.trim() || "Test Buyer",
+    },
+  });
 }
 
 export function createSubject(kind: string): Subject {
   if (kind === "gullible") return new GullibleSubject();
   if (kind === "strict") return new StrictSubject();
+  if (kind === "refuse-all") return new RefuseAllSubject();
   if (kind === "model") return new ModelSubject(createModel("subject"));
   if (kind === "toolkit") {
     const toolkit = createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET"));
     return new ToolkitSubject(toolkit, createModel("subject"));
   }
-  throw new Error(`Unknown subject "${kind}". Use gullible, strict, model or toolkit.`);
+  throw new Error(`Unknown subject "${kind}". Use gullible, strict, refuse-all, model or toolkit.`);
 }
 
 export function createAttacker(kind: string): Attacker {

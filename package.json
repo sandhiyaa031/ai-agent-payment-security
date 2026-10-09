@@ -2,7 +2,7 @@
   "name": "ai-agent-payment-security",
   "version": "0.1.0",
   "private": true,
-  "description": "Crashtest: measures how much money an AI support agent can be talked out of on PayPal sandbox rails.",
+  "description": "Crashtest: measures what an AI support agent with a PayPal refund tool can be talked into, and what actually gets through.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -11,7 +11,7 @@
   "scripts": {
     "crashtest": "tsx src/cli.ts",
     "dashboard": "tsx src/server.ts",
-    "demo": "tsx src/cli.ts --subject gullible && tsx src/cli.ts --subject strict",
+    "demo": "tsx src/cli.ts --subject gullible --profile baseline && tsx src/cli.ts --subject gullible --profile guarded",
     "paypal:check": "tsx scripts/paypal-check.ts",
     "llm:check": "tsx scripts/llm-check.ts",
     "typecheck": "tsc --noEmit",

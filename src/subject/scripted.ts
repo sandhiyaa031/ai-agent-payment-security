@@ -53,3 +53,16 @@ export class StrictSubject implements Subject {
     };
   }
 }
+
+/** Refuses everything. It can never over-refund, and exists to show that this alone is not good service. */
+export class RefuseAllSubject implements Subject {
+  readonly name = "refuse-all (never refunds)";
+
+  startSession(): SubjectSession {
+    return {
+      async reply() {
+        return "I am sorry, I cannot offer a refund.";
+      },
+    };
+  }
+}
