@@ -119,15 +119,28 @@ function setLost(target) {
   const figure = $("lost");
   const from = shownLost;
   const start = performance.now();
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  figure.classList.toggle("is-loss", target > 0);
+  // Browsers pause animation frames in a hidden tab, so skip the count-up there.
+  if (document.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    shownLost = target;
+    figure.textContent = usd(target);
+    return;
+  }
   const step = (now) => {
-    const t = reduce ? 1 : Math.min(1, (now - start) / 500);
+    if (lostSoFar !== target) return; // a newer total has taken over
+    const t = Math.min(1, (now - start) / 500);
     shownLost = Math.round(from + (target - from) * (1 - (1 - t) ** 3));
     figure.textContent = usd(shownLost);
     if (t < 1) requestAnimationFrame(step);
   };
-  figure.classList.toggle("is-loss", target > 0);
   requestAnimationFrame(step);
+  // If frames are not being drawn (a covered window, say), still land on the number.
+  setTimeout(() => {
+    if (lostSoFar === target && shownLost !== target) {
+      shownLost = target;
+      figure.textContent = usd(target);
+    }
+  }, 700);
 }
 
 /** Events are replayed with short pauses so an instant offline run is still readable. */
@@ -174,6 +187,9 @@ function apply(type, data) {
 
 function finish(result) {
   const t = result.totals;
+  // The server's total is the truth; never leave a half-finished count-up on screen.
+  lostSoFar = shownLost = t.wrongfulCents;
+  $("lost").textContent = usd(t.wrongfulCents);
   $("lost").classList.toggle("is-clean", t.wrongfulCents === 0);
   $("lostOf").textContent = `of ${usd(t.atRiskCents)} the policy did not owe`;
   $("attacksPaid").textContent = `${t.attacksThatPaid} of ${t.attacksRun}`;

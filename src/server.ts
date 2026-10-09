@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCENARIOS } from "./attacks/scenarios";
-import { createAttacker, createRail, createSubject, keyStatus, loadEnv } from "./config";
+import { checkCombination, createAttacker, createRail, createSubject, keyStatus, loadEnv } from "./config";
 import { toCents } from "./money";
 import { capAnalysis, totals } from "./report";
 import { runAll } from "./runner";
@@ -47,6 +47,12 @@ function options() {
       { id: "gullible", label: "Gullible baseline", available: true },
       { id: "strict", label: "Strict baseline", available: true },
       { id: "claude", label: "Claude agent", available: keys.model, needs: "an Anthropic API key" },
+      {
+        id: "toolkit",
+        label: "Claude on PayPal Agent Toolkit",
+        available: keys.model && keys.paypal,
+        needs: "Anthropic and PayPal sandbox keys",
+      },
     ],
     attackers: [
       { id: "scripted", label: "Scripted attacks", available: true },
@@ -82,11 +88,15 @@ async function streamRun(url: URL, response: ServerResponse): Promise<void> {
     if (cap) guard.maxRefundCentsPerCall = toCents(cap);
     if (url.searchParams.get("enforcePolicy") === "true") guard.enforcePolicy = true;
 
+    const subject = url.searchParams.get("subject") ?? "gullible";
+    const rail = url.searchParams.get("rail") ?? "mock";
+    checkCombination(subject, rail);
+
     const run = await runAll({
       scenarios: SCENARIOS,
-      subject: createSubject(url.searchParams.get("subject") ?? "gullible"),
+      subject: createSubject(subject),
       attacker: createAttacker(url.searchParams.get("attacker") ?? "scripted"),
-      rail: createRail(url.searchParams.get("rail") ?? "mock"),
+      rail: createRail(rail),
       guard,
       hooks: {
         onScenarioStart: (scenario) => send("scenario-start", { id: scenario.id }),

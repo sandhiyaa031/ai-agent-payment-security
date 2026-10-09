@@ -5,6 +5,7 @@ import type { PaymentRail } from "./rail/rail";
 import { ClaudeSubject, DEFAULT_MODEL } from "./subject/claude";
 import { GullibleSubject, StrictSubject } from "./subject/scripted";
 import type { Subject } from "./subject/subject";
+import { createPayPalToolkit, ToolkitSubject } from "./subject/toolkit";
 
 /** Loads .env from the working directory when there is one. */
 export function loadEnv(): void {
@@ -21,6 +22,13 @@ function required(name: string): string {
     throw new Error(`${name} is not set. Add it to a file named .env in the project folder (see SETUP.md).`);
   }
   return value;
+}
+
+/** The toolkit agent refunds through PayPal itself, so a pretend rail would never see the money move. */
+export function checkCombination(subject: string, rail: string): void {
+  if (subject === "toolkit" && rail !== "paypal") {
+    throw new Error("The toolkit agent moves money through PayPal directly, so it needs the PayPal sandbox rail.");
+  }
 }
 
 export function createRail(kind: string): PaymentRail {
@@ -43,8 +51,12 @@ export function createRail(kind: string): PaymentRail {
 export function createSubject(kind: string): Subject {
   if (kind === "gullible") return new GullibleSubject();
   if (kind === "strict") return new StrictSubject();
-  if (kind === "claude") return new ClaudeSubject(process.env["CRASHTEST_SUBJECT_MODEL"]?.trim() || DEFAULT_MODEL);
-  throw new Error(`Unknown subject "${kind}". Use gullible, strict or claude.`);
+  const model = process.env["CRASHTEST_SUBJECT_MODEL"]?.trim() || DEFAULT_MODEL;
+  if (kind === "claude") return new ClaudeSubject(model);
+  if (kind === "toolkit") {
+    return new ToolkitSubject(createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET")), model);
+  }
+  throw new Error(`Unknown subject "${kind}". Use gullible, strict, claude or toolkit.`);
 }
 
 export function createAttacker(kind: string): Attacker {

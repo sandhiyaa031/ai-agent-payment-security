@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { SCENARIOS } from "./attacks/scenarios";
-import { createAttacker, createRail, createSubject, loadEnv } from "./config";
+import { checkCombination, createAttacker, createRail, createSubject, loadEnv } from "./config";
 import { toCents, usd } from "./money";
 import { formatReport } from "./report";
 import { runAll } from "./runner";
@@ -12,7 +12,10 @@ const HELP = `Crashtest: how much money can an AI support agent be talked out of
 
 Usage: npm run crashtest -- [options]
 
-  --subject <gullible|strict|claude>   Agent under test (default gullible)
+  --subject <gullible|strict|claude|toolkit>
+                                       Agent under test (default gullible).
+                                       toolkit is a Claude agent that refunds through
+                                       PayPal's Agent Toolkit; it needs --rail paypal
   --attacker <scripted|adaptive>       Who plays the customer (default scripted)
   --rail <mock|paypal>                 Where the money moves (default mock)
   --cap <dollars>                      Guard: block any single refund above this
@@ -21,7 +24,7 @@ Usage: npm run crashtest -- [options]
   --json <path>                        Also write the full result as JSON
   --help
 
-claude and adaptive need an Anthropic API key; paypal needs sandbox keys.
+claude, toolkit and adaptive need an Anthropic API key; paypal needs sandbox keys.
 See SETUP.md.`;
 
 async function main(): Promise<void> {
@@ -51,6 +54,7 @@ async function main(): Promise<void> {
   if (values.cap !== undefined) guard.maxRefundCentsPerCall = toCents(values.cap);
   if (values["enforce-policy"]) guard.enforcePolicy = true;
 
+  checkCombination(values.subject, values.rail);
   const run = await runAll({
     scenarios,
     subject: createSubject(values.subject),

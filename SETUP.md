@@ -84,7 +84,13 @@ Let a second model play an attacker that changes tactics each turn:
 npm run crashtest -- --subject claude --attacker adaptive
 ```
 
-Add `--rail paypal` to either command to move the money on the PayPal sandbox instead of the pretend system. The dashboard offers the same choices in its menus once the keys are in `.env`; restart it after editing that file.
+Once Stage 2 is also done, test an agent that refunds through PayPal's own Agent Toolkit:
+
+```bash
+npm run crashtest -- --subject toolkit --rail paypal --attacker adaptive
+```
+
+Add `--rail paypal` to either earlier command to move the money on the PayPal sandbox instead of the pretend system. The dashboard offers the same choices in its menus once the keys are in `.env`; restart it after editing that file.
 
 Two optional lines in `.env` choose the models: `CRASHTEST_SUBJECT_MODEL` and `CRASHTEST_ATTACKER_MODEL`. Both default to `claude-opus-5-5`.
 
