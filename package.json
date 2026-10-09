@@ -13,6 +13,7 @@
     "dashboard": "tsx src/server.ts",
     "demo": "tsx src/cli.ts --subject gullible && tsx src/cli.ts --subject strict",
     "paypal:check": "tsx scripts/paypal-check.ts",
+    "llm:check": "tsx scripts/llm-check.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

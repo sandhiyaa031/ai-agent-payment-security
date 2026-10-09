@@ -8,6 +8,8 @@ let followLive = false;
 let lostSoFar = 0;
 let shownLost = 0;
 let grid;
+let runsGrid;
+let scenarioList = [];
 
 function statusOf(row) {
   if (row.state === "queued") return { text: "Queued", tone: "queued" };
@@ -64,6 +66,61 @@ function buildGrid() {
       select(event.data.id);
     },
   });
+}
+
+function guardText(guard) {
+  const parts = [];
+  if (guard?.maxRefundCentsPerCall !== undefined) parts.push(`ceiling ${usd(guard.maxRefundCentsPerCall)}`);
+  if (guard?.enforcePolicy) parts.push("policy in code");
+  return parts.join(", ") || "none";
+}
+
+function buildRunsGrid() {
+  runsGrid = agGrid.createGrid($("runs"), {
+    theme: agGrid.themeQuartz.withParams({
+      fontFamily: "inherit",
+      accentColor: "#17181c",
+      borderColor: "#e2ded5",
+      headerBackgroundColor: "#faf9f6",
+      wrapperBorderRadius: 8,
+    }),
+    columnDefs: [
+      { headerName: "Agent", field: "subject", flex: 2, minWidth: 220, tooltipField: "subject" },
+      { headerName: "Attacker", field: "attacker", flex: 1, minWidth: 120, tooltipField: "attacker" },
+      { headerName: "Rail", field: "rail", width: 150, valueFormatter: (p) => RAIL_LABELS[p.value] ?? p.value },
+      { headerName: "Guards", colId: "guards", width: 150, valueGetter: (p) => guardText(p.data.guard) },
+      {
+        headerName: "Lost",
+        colId: "lost",
+        width: 120,
+        valueGetter: (p) => p.data.totals.wrongfulCents,
+        valueFormatter: (p) => usd(p.value),
+        cellClassRules: { num: () => true, bad: (p) => p.value > 0 },
+      },
+      {
+        headerName: "Honest refunds",
+        colId: "honest",
+        width: 180,
+        cellClass: "num",
+        valueGetter: (p) => `${usd(p.data.totals.paidOwedCents)} of ${usd(p.data.totals.owedCents)}`,
+      },
+      { headerName: "Saved", field: "savedAt", width: 170, valueFormatter: (p) => new Date(p.value).toLocaleString() },
+    ],
+    rowData: [],
+    getRowId: (p) => p.data.id,
+    rowSelection: { mode: "singleRow", checkboxes: false, enableClickSelection: true },
+    suppressCellFocus: true,
+    overlayNoRowsTemplate: "No saved runs yet. Run a crash test and it will appear here.",
+    onRowClicked: (event) => {
+      if ($("run").disabled) return;
+      begin(`/api/replay?id=${encodeURIComponent(event.data.id)}`, "Replaying…");
+    },
+  });
+}
+
+async function loadRuns() {
+  const runs = await (await fetch("/api/recordings")).json();
+  runsGrid.setGridOption("rowData", runs);
 }
 
 function refreshRow(row) {
@@ -195,6 +252,7 @@ function finish(result) {
   $("attacksPaid").textContent = `${t.attacksThatPaid} of ${t.attacksRun}`;
   $("honestPaid").textContent = `${usd(t.paidOwedCents)} of ${usd(t.owedCents)}`;
   $("railName").textContent = RAIL_LABELS[result.rail] ?? result.rail;
+  $("agentName").textContent = result.subject;
 
   const body = $("caps");
   body.replaceChildren();
@@ -216,6 +274,7 @@ function finish(result) {
   const worst = [...rows.values()].sort((a, b) => b.wrongfulCents - a.wrongfulCents)[0];
   if (followLive && worst && worst.wrongfulCents > 0) select(worst.id);
   setBusy(false);
+  loadRuns();
 }
 
 function fail(message) {
@@ -231,9 +290,34 @@ function fail(message) {
   setBusy(false);
 }
 
-function setBusy(busy) {
+function setBusy(busy, label = "Running…") {
   $("run").disabled = busy;
-  $("run").textContent = busy ? "Running…" : "Run crash test";
+  $("run").textContent = busy ? label : "Run crash test";
+}
+
+/** Starts a live run or a replay; both arrive as the same stream of events. */
+function begin(url, label) {
+  reset(scenarioList);
+  $("lostOf").textContent = label;
+  followLive = true;
+  setBusy(true, label);
+
+  const stream = new EventSource(url);
+  let ended = false;
+  for (const type of Object.keys(PAUSE)) {
+    stream.addEventListener(type, (message) => {
+      if (type === "done" || type === "failed") {
+        ended = true;
+        stream.close();
+      }
+      enqueue(type, JSON.parse(message.data));
+    });
+  }
+  stream.onerror = () => {
+    if (ended) return;
+    stream.close();
+    enqueue("failed", { message: "lost the connection to the Crashtest server." });
+  };
 }
 
 function reset(scenarios) {
@@ -248,7 +332,7 @@ function reset(scenarios) {
   $("lost").textContent = usd(0);
   $("lost").classList.remove("is-loss", "is-clean");
   $("lostOf").textContent = "Running…";
-  for (const id of ["attacksPaid", "honestPaid", "railName"]) $(id).textContent = "–";
+  for (const id of ["attacksPaid", "honestPaid", "railName", "agentName"]) $(id).textContent = "–";
   $("capsPanel").hidden = true;
   $("notice").hidden = true;
   renderChat();
@@ -266,7 +350,10 @@ function fillSelect(select, choices) {
 
 async function start() {
   buildGrid();
+  buildRunsGrid();
   const options = await (await fetch("/api/options")).json();
+  scenarioList = options.scenarios;
+  loadRuns();
   fillSelect($("subject"), options.subjects);
   fillSelect($("attacker"), options.attackers);
   fillSelect($("rail"), options.rails);
@@ -281,10 +368,6 @@ async function start() {
       $("notice").hidden = false;
       return;
     }
-    reset(options.scenarios);
-    followLive = true;
-    setBusy(true);
-
     const query = new URLSearchParams({
       subject: $("subject").value,
       attacker: $("attacker").value,
@@ -292,22 +375,7 @@ async function start() {
       cap,
       enforcePolicy: String($("enforcePolicy").checked),
     });
-    const stream = new EventSource(`/api/run?${query}`);
-    let ended = false;
-    for (const type of Object.keys(PAUSE)) {
-      stream.addEventListener(type, (message) => {
-        if (type === "done" || type === "failed") {
-          ended = true;
-          stream.close();
-        }
-        enqueue(type, JSON.parse(message.data));
-      });
-    }
-    stream.onerror = () => {
-      if (ended) return;
-      stream.close();
-      enqueue("failed", { message: "lost the connection to the Crashtest server." });
-    };
+    begin(`/api/run?${query}`, "Running…");
   });
 }
 

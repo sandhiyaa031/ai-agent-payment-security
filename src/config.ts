@@ -1,8 +1,9 @@
 import { AdaptiveAttacker, ScriptedAttacker, type Attacker } from "./attacks/attacker";
+import { createModel, modelConfigured } from "./llm";
 import { MockRail } from "./rail/mock";
 import { PayPalRail } from "./rail/paypal";
 import type { PaymentRail } from "./rail/rail";
-import { ClaudeSubject, DEFAULT_MODEL } from "./subject/claude";
+import { ModelSubject } from "./subject/agent";
 import { GullibleSubject, StrictSubject } from "./subject/scripted";
 import type { Subject } from "./subject/subject";
 import { createPayPalToolkit, ToolkitSubject } from "./subject/toolkit";
@@ -51,17 +52,17 @@ export function createRail(kind: string): PaymentRail {
 export function createSubject(kind: string): Subject {
   if (kind === "gullible") return new GullibleSubject();
   if (kind === "strict") return new StrictSubject();
-  const model = process.env["CRASHTEST_SUBJECT_MODEL"]?.trim() || DEFAULT_MODEL;
-  if (kind === "claude") return new ClaudeSubject(model);
+  if (kind === "model") return new ModelSubject(createModel("subject"));
   if (kind === "toolkit") {
-    return new ToolkitSubject(createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET")), model);
+    const toolkit = createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET"));
+    return new ToolkitSubject(toolkit, createModel("subject"));
   }
-  throw new Error(`Unknown subject "${kind}". Use gullible, strict, claude or toolkit.`);
+  throw new Error(`Unknown subject "${kind}". Use gullible, strict, model or toolkit.`);
 }
 
 export function createAttacker(kind: string): Attacker {
   if (kind === "scripted") return new ScriptedAttacker();
-  if (kind === "adaptive") return new AdaptiveAttacker(process.env["CRASHTEST_ATTACKER_MODEL"]?.trim() || DEFAULT_MODEL);
+  if (kind === "adaptive") return new AdaptiveAttacker(createModel("attacker"));
   throw new Error(`Unknown attacker "${kind}". Use scripted or adaptive.`);
 }
 
@@ -69,7 +70,7 @@ export function createAttacker(kind: string): Attacker {
 export function keyStatus(): { model: boolean; paypal: boolean } {
   const has = (name: string) => Boolean(process.env[name]?.trim());
   return {
-    model: has("ANTHROPIC_API_KEY") || has("ANTHROPIC_AUTH_TOKEN"),
+    model: modelConfigured(),
     paypal: has("PAYPAL_CLIENT_ID") && has("PAYPAL_CLIENT_SECRET") && has("PAYPAL_TEST_CARD_NUMBER"),
   };
 }

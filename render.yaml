@@ -1,0 +1,15 @@
+# Render blueprint for a public, read-mostly copy of the dashboard.
+# Hosted mode runs only the built-in agents on the test rail and replays the
+# recordings in this repository. It holds no keys and writes nothing to disk.
+services:
+  - type: web
+    name: crashtest
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev
+    startCommand: npm run dashboard
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: CRASHTEST_PUBLIC
+        value: "1"

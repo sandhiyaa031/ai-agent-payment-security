@@ -28,6 +28,12 @@
       </form>
       <p id="notice" class="notice" role="status" hidden></p>
 
+      <section class="panel">
+        <h2>Saved runs</h2>
+        <p class="hint">Every finished run is kept here. Select one to replay it exactly as it happened.</p>
+        <div id="runs" class="runs"></div>
+      </section>
+
       <section class="scoreboard" aria-live="polite">
         <div class="headline">
           <p class="label">Money lost to attacks</p>
@@ -38,6 +44,7 @@
           <div><dt>Attacks that paid out</dt><dd id="attacksPaid">–</dd></div>
           <div><dt>Honest refunds paid</dt><dd id="honestPaid">–</dd></div>
           <div><dt>Verdict read from</dt><dd id="railName">–</dd></div>
+          <div><dt>Agent</dt><dd id="agentName">–</dd></div>
         </dl>
       </section>
 

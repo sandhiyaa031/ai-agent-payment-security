@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { PayPalAgentToolkit } from "@paypal/agent-toolkit/openai";
+import type { ChatModel, ToolSpec } from "../llm/model";
 import { toCents, toDecimal, usd } from "../money";
-import { createChat, DEFAULT_MODEL, systemPrompt } from "./claude";
+import { createChat, systemPrompt, type ToolReply } from "./agent";
 import type { Subject, SubjectSession } from "./subject";
 import type { SessionContext, SupportTools } from "./tools";
 
@@ -15,11 +15,11 @@ export interface ToolkitLike {
   }): Promise<{ content: unknown }>;
 }
 
-const LOOKUP_TOOL: Anthropic.Tool = {
+const LOOKUP_TOOL: ToolSpec = {
   name: "lookup_store_order",
   description:
     "Look up an order in the store's own records: who placed it, what it cost, its delivery status, whether a return has been received, and its PayPal capture id.",
-  input_schema: {
+  parameters: {
     type: "object",
     properties: { order_id: { type: "string", description: "The order id the customer gave." } },
     required: ["order_id"],
@@ -48,38 +48,30 @@ export function createPayPalToolkit(clientId: string, clientSecret: string): Too
 }
 
 /**
- * A Claude agent whose refund tool is PayPal's own Agent Toolkit `create_refund`,
+ * An agent whose refund tool is PayPal's own Agent Toolkit `create_refund`,
  * with the tool's real name, description and parameters. The store lookup is
  * ours; the money moves through PayPal's code.
  */
 export class ToolkitSubject implements Subject {
   readonly name: string;
-  private readonly client: Anthropic;
-  private readonly tools: Anthropic.Tool[];
+  private readonly tools: ToolSpec[];
 
   constructor(
     private readonly toolkit: ToolkitLike,
-    private readonly model: string = DEFAULT_MODEL,
-    client?: Anthropic,
+    private readonly model: ChatModel,
   ) {
-    this.name = `claude (${model}) on PayPal Agent Toolkit`;
-    this.client = client ?? new Anthropic();
+    this.name = `${model.label} on PayPal Agent Toolkit`;
     this.tools = [
       LOOKUP_TOOL,
-      ...toolkit.getTools().map(({ function: fn }): Anthropic.Tool => {
-        const { $schema: _schema, ...schema } = fn.parameters ?? { type: "object", properties: {} };
-        return {
-          name: fn.name,
-          description: fn.description?.trim() ?? "",
-          input_schema: schema as Anthropic.Tool.InputSchema,
-        };
+      ...toolkit.getTools().map(({ function: fn }): ToolSpec => {
+        const { $schema: _schema, ...parameters } = fn.parameters ?? { type: "object", properties: {} };
+        return { name: fn.name, description: fn.description?.trim() ?? "", parameters };
       }),
     ];
   }
 
   startSession(context: SessionContext, tools: SupportTools): SubjectSession {
     return createChat({
-      client: this.client,
       model: this.model,
       system: systemPrompt(context),
       tools: this.tools,
@@ -87,14 +79,12 @@ export class ToolkitSubject implements Subject {
     });
   }
 
-  private async runTool(call: Anthropic.ToolUseBlock, tools: SupportTools): Promise<Anthropic.ToolResultBlockParam> {
-    const input = call.input as Record<string, unknown>;
-    const reply = (content: string, isError = false): Anthropic.ToolResultBlockParam => ({
-      type: "tool_result",
-      tool_use_id: call.id,
-      is_error: isError,
-      content,
-    });
+  private async runTool(
+    call: { id: string; name: string; input: Record<string, unknown> },
+    tools: SupportTools,
+  ): Promise<ToolReply> {
+    const { input } = call;
+    const reply = (content: string, isError = false): ToolReply => ({ content, isError });
 
     if (call.name === LOOKUP_TOOL.name) {
       const order = typeof input["order_id"] === "string" ? tools.getOrder(input["order_id"]) : undefined;
@@ -132,7 +122,7 @@ export class ToolkitSubject implements Subject {
     // The toolkit refunds the full capture when no amount is given.
     let amountCents = order.amountCents;
     const amount = input["amount"] as { currency_code?: unknown; value?: unknown } | undefined;
-    if (amount !== undefined) {
+    if (amount !== undefined && amount !== null) {
       if (amount.currency_code !== "USD" || typeof amount.value !== "string") {
         return reply("Refund amounts must be in USD, as a decimal string.", true);
       }

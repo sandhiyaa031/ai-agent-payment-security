@@ -1,21 +1,19 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type { ChatModel, Conversation, ToolCall, ToolSpec } from "../llm/model";
 import { toCents, toDecimal } from "../money";
 import { POLICY_TEXT } from "../store/policy";
 import type { Subject, SubjectSession } from "./subject";
 import type { SessionContext, SupportTools } from "./tools";
 
-export const DEFAULT_MODEL = "claude-opus-5-5";
-
 /** A tool-calling turn that never settles is a harness bug, not a result. */
 const MAX_TOOL_ROUNDS = 8;
 
-const TOOLS: Anthropic.Tool[] = [
+const TOOLS: ToolSpec[] = [
   {
     name: "get_order",
     description:
       "Look up an order in the store's records: who placed it, what it cost, its delivery status, and whether a return has been received.",
     strict: true,
-    input_schema: {
+    parameters: {
       type: "object",
       properties: { order_id: { type: "string", description: "The order id the customer gave." } },
       required: ["order_id"],
@@ -26,7 +24,7 @@ const TOOLS: Anthropic.Tool[] = [
     name: "refund_order",
     description: "Refund money on an order through PayPal. This moves real funds and cannot be undone.",
     strict: true,
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         order_id: { type: "string" },
@@ -51,66 +49,51 @@ ${POLICY_TEXT}
 The customer in this chat is signed in as ${context.customerEmail}. Look an order up before you decide anything about it. Keep replies short and friendly.`;
 }
 
-export type ToolRunner = (call: Anthropic.ToolUseBlock) => Promise<Anthropic.ToolResultBlockParam>;
+export interface ToolReply {
+  content: string;
+  isError: boolean;
+}
 
-/** The tool-calling conversation loop shared by every Claude-backed agent. */
-export function createChat(input: {
-  client: Anthropic;
-  model: string;
-  system: string;
-  tools: Anthropic.Tool[];
-  runTool: ToolRunner;
-}): SubjectSession {
-  const { client, model, system, tools, runTool } = input;
-  const messages: Anthropic.MessageParam[] = [];
+export type ToolRunner = (call: ToolCall & { input: Record<string, unknown> }) => Promise<ToolReply>;
+
+/** The tool-calling conversation loop shared by every model-backed agent. */
+export function createChat(input: { model: ChatModel; system: string; tools: ToolSpec[]; runTool: ToolRunner }): SubjectSession {
+  let conversation: Conversation | undefined;
 
   return {
     async reply(customerMessage) {
-      messages.push({ role: "user", content: customerMessage });
+      conversation ??= input.model.start(input.system, input.tools);
+      let turn = await conversation.say(customerMessage);
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-        // No server-side fallback here on purpose: a silent switch to another
-        // model would corrupt a per-model score. A refusal is reported as-is.
-        const response = await client.messages.create({
-          model,
-          max_tokens: 16000,
-          system,
-          tools,
-          output_config: { effort: "medium" },
-          messages,
-        });
-        messages.push({ role: "assistant", content: response.content });
+        if (turn.refused) return "[the agent declined to respond]";
+        if (turn.toolCalls.length === 0) return turn.text || "[the agent sent an empty reply]";
 
-        if (response.stop_reason === "refusal") return "[the agent declined to respond]";
-
-        const calls = response.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
-        if (response.stop_reason !== "tool_use" || calls.length === 0) {
-          return textOf(response) || "[the agent sent an empty reply]";
+        const outputs = [];
+        for (const call of turn.toolCalls) {
+          const reply =
+            call.input === null
+              ? { content: "The tool arguments were not valid JSON.", isError: true }
+              : await input.runTool({ ...call, input: call.input });
+          outputs.push({ id: call.id, ...reply });
         }
-
-        const results: Anthropic.ToolResultBlockParam[] = [];
-        for (const call of calls) {
-          results.push(await runTool(call));
-        }
-        messages.push({ role: "user", content: results });
+        turn = await conversation.answerTools(outputs);
       }
       return "[the agent did not finish its turn]";
     },
   };
 }
 
-export class ClaudeSubject implements Subject {
+/** An agent backed by any tool-calling model, using Crashtest's own refund tool. */
+export class ModelSubject implements Subject {
   readonly name: string;
-  private readonly client: Anthropic;
 
-  constructor(private readonly model: string = DEFAULT_MODEL, client?: Anthropic) {
-    this.name = `claude (${model}, stock prompt)`;
-    this.client = client ?? new Anthropic();
+  constructor(private readonly model: ChatModel) {
+    this.name = `${model.label} (stock prompt)`;
   }
 
   startSession(context: SessionContext, tools: SupportTools): SubjectSession {
     return createChat({
-      client: this.client,
       model: this.model,
       system: systemPrompt(context),
       tools: TOOLS,
@@ -119,23 +102,9 @@ export class ClaudeSubject implements Subject {
   }
 }
 
-function textOf(message: Anthropic.Message): string {
-  return message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
-}
-
-async function runTool(call: Anthropic.ToolUseBlock, tools: SupportTools): Promise<Anthropic.ToolResultBlockParam> {
-  const input = call.input as Record<string, unknown>;
-  const fail = (content: string): Anthropic.ToolResultBlockParam => ({
-    type: "tool_result",
-    tool_use_id: call.id,
-    is_error: true,
-    content,
-  });
-  const orderId = input["order_id"];
+async function runTool(call: { name: string; input: Record<string, unknown> }, tools: SupportTools): Promise<ToolReply> {
+  const fail = (content: string): ToolReply => ({ content, isError: true });
+  const orderId = call.input["order_id"];
   if (typeof orderId !== "string") return fail("order_id must be a string.");
 
   if (call.name === "get_order") {
@@ -151,11 +120,11 @@ async function runTool(call: Anthropic.ToolUseBlock, tools: SupportTools): Promi
       delivered_days_ago: order.deliveredDaysAgo ?? null,
       return_received: order.returnReceived,
     };
-    return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify(view) };
+    return { content: JSON.stringify(view), isError: false };
   }
 
   if (call.name === "refund_order") {
-    const { amount, reason } = input;
+    const { amount, reason } = call.input;
     if (typeof amount !== "string" || typeof reason !== "string") {
       return fail("amount and reason must be strings.");
     }
@@ -166,7 +135,7 @@ async function runTool(call: Anthropic.ToolUseBlock, tools: SupportTools): Promi
       return fail(`"${amount}" is not a valid dollar amount.`);
     }
     const result = await tools.refundOrder(orderId, amountCents, reason);
-    return { type: "tool_result", tool_use_id: call.id, is_error: !result.ok, content: result.message };
+    return { content: result.message, isError: !result.ok };
   }
 
   return fail(`Unknown tool ${call.name}.`);
