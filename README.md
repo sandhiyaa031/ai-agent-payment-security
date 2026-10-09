@@ -71,6 +71,8 @@ Honest refunds paid   : $207.00 of $207.00 owed (100%)
 
 ## How it is built
 
+The design decisions are in [ARCHITECTURE.md](ARCHITECTURE.md), and the plan with progress is in [ROADMAP.md](ROADMAP.md).
+
 | Path | Role |
 |---|---|
 | `src/rail/` | The money. `paypal.ts` talks to the PayPal sandbox (Orders and Payments APIs); `mock.ts` is an in-memory copy with the same refund rules. |
