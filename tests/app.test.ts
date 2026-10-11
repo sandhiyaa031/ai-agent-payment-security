@@ -179,6 +179,15 @@ describe("hosted mode", () => {
     expect(available(options["attackers"]!)).toEqual(["scripted"]);
   });
 
+  it("says which version and commit it is running, and leaves the commit out when the host gives none", async () => {
+    const build = async (overrides: Partial<AppDeps>) => {
+      const app = await startApp({ hosted: true, ...overrides });
+      return ((await (await fetch(`${app.base}/api/options`)).json()) as { build: unknown }).build;
+    };
+    expect(await build({ commit: "400abce" })).toEqual({ version: "test", commit: "400abce" });
+    expect(await build({})).toEqual({ version: "test" });
+  });
+
   it("refuses every request that would need a key or a real provider, before creating anything", async () => {
     const app = await startApp({ hosted: true });
     for (const query of ["profile=sandbox", "subject=model", "subject=toolkit&profile=sandbox", "attacker=adaptive", "profile=sandbox&subject=gullible&attacker=scripted"]) {

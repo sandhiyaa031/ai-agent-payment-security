@@ -7,6 +7,8 @@ import { createAttacker, createRail, createSubject, harnessVersion, keyStatus, l
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const hosted = process.env["CRASHTEST_PUBLIC"] === "1";
+// Render sets this on each deploy. It lets anyone check which commit a hosted copy is running.
+const commit = /^[0-9a-f]{7,40}$/.exec(process.env["RENDER_GIT_COMMIT"] ?? "")?.[0].slice(0, 7);
 
 // A hosted copy holds no keys, so it does not read .env at all.
 if (!hosted) loadEnv();
@@ -23,6 +25,7 @@ const handle = createApp({
       ],
   localRunsDir: join(ROOT, "runs"),
   harnessVersion: harnessVersion(),
+  commit,
   scenarios: SCENARIOS,
   keyStatus,
   createRail,

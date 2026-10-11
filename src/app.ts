@@ -23,6 +23,8 @@ export interface AppDeps {
   /** Where finished local runs are saved. Not used in hosted mode. */
   localRunsDir: string;
   harnessVersion: string;
+  /** Short id of the deployed commit, when the host provides one. */
+  commit?: string;
   scenarios: Scenario[];
   keyStatus(): { model: boolean; paypal: boolean };
   createRail(kind: "mock" | "paypal"): PaymentRail;
@@ -90,6 +92,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
     const needsPayPal = deps.hosted ? "a private install" : "PayPal sandbox keys";
     return {
       hosted: deps.hosted,
+      build: { version: deps.harnessVersion, ...(deps.commit ? { commit: deps.commit } : {}) },
       maxRepeats: maxRepeats(deps.hosted),
       profiles: [
         { id: "baseline", label: PROFILES.baseline.label, available: true },
