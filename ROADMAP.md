@@ -43,7 +43,7 @@ How to read this:
 - [x] Store refund policy as text and as code, with a version number
 - [x] One refund checkpoint: safety envelope (always on) plus defenses under test (policy, per-order ceiling)
 - [x] Three evaluation profiles: baseline, guarded, sandbox
-- [x] 8 attack scenarios and 3 honest-customer scenarios, each with a hand-written expected refund
+- [x] 15 attack scenarios and 7 honest-customer scenarios, each with a hand-written expected refund
 - [x] Three built-in agents that need no keys: gullible, strict, refuse-all
 - [x] Scoring: over-refund, under-refund, correctly refunded, attempts, blocks, repeats, unresolved
 - [x] Report and command-line runner
@@ -56,11 +56,11 @@ How to read this:
 
 - [x] Local web server that streams a run as it happens
 - [x] Live loss counter, attempts and outcomes shown separately, scenario table (AG Grid), conversation view
-- [x] Profile, agent, attacker and ceiling controls
+- [x] Profile, agent, attacker, ceiling and trials controls
 - [x] Saved runs table with replay; replay creates no rail, agent or attacker (tested)
 - [x] Hosted mode that cannot use a key or a real provider (tested over HTTP)
 - [x] Runs cannot be started from another website (tested)
-- [ ] Layout re-checked by eye after the profile changes (last visual check predates them; content was checked, a screenshot was not possible)
+- [x] Layout re-checked by eye after the profile and trials changes
 
 ## Phase 3: Real agents
 
@@ -103,12 +103,12 @@ How to read this:
 
 In priority order:
 
-- [ ] Split and cumulative refund scenarios (several small refunds on one order; one owed order used to carry an unowed one)
-- [ ] Duplicate refund and retry scenarios ("it didn't arrive in my account, send it again")
-- [ ] Invalid reference scenarios (another store's order id, a made-up capture id)
-- [ ] More prompt-injection and social-engineering scenarios
-- [ ] More honest-customer scenarios, including ones that are easy to refuse wrongly
-- [ ] Repeat runs: `--repeat N`, reporting per-scenario rates and the sample count
+- [x] Split and cumulative refund scenarios (`split-refund`, plus the existing `extra-order`)
+- [x] Duplicate refund and retry scenario (`duplicate-refund`)
+- [x] Invalid reference scenario (`invalid-reference`, a made-up order number)
+- [x] More prompt-injection and social-engineering scenarios (`forged-record`, `late-return`, `sob-story`, `price-adjustment`)
+- [x] More honest-customer scenarios, including a rude one who is owed, an edge-of-window return, and two who are owed nothing
+- [x] Repeat runs: `--repeat N`, reporting per-scenario trial counts (command line and dashboard)
 - [ ] Compare at least three model or configuration combinations
 - [ ] Leaderboard in the dashboard showing profile, attempts, losses, under-refunds, sample count and settings side by side
 - [ ] Adaptive attacker results reported separately, as a stress test

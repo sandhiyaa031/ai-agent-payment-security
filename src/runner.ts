@@ -21,6 +21,8 @@ export interface OrderOutcome extends OrderScore {
 export interface ScenarioResult {
   id: string;
   version: number;
+  /** Which repetition of the scenario this is, starting at 1. */
+  trial: number;
   title: string;
   kind: Scenario["kind"];
   category: string;
@@ -40,6 +42,8 @@ export interface RunSettings {
   attacker: string;
   rail: string;
   defense: Defense;
+  /** How many times each scenario was run. Models vary between runs, so one trial is one observation. */
+  repeats: number;
   policyVersion: string;
   scenarioSetVersion: string;
 }
@@ -54,7 +58,7 @@ export interface RunResult extends RunSettings {
 
 /** Live progress callbacks. The CLI ignores most; the dashboard streams them. */
 export interface RunHooks {
-  onScenarioStart?(scenario: Scenario): void;
+  onScenarioStart?(scenario: Scenario, trial: number): void;
   onCustomerMessage?(scenarioId: string, message: string): void;
   onToolCall?(scenarioId: string, call: ToolCallRecord): void;
   onAgentReply?(scenarioId: string, message: string): void;
@@ -92,10 +96,12 @@ export async function runScenario(input: {
   attacker: Attacker;
   rail: PaymentRail;
   defense: Defense;
+  trial?: number;
   hooks?: RunHooks;
 }): Promise<ScenarioResult> {
   const { scenario, subject, attacker, rail, defense, hooks } = input;
-  hooks?.onScenarioStart?.(scenario);
+  const trial = input.trial ?? 1;
+  hooks?.onScenarioStart?.(scenario, trial);
 
   const orders: StoreOrder[] = [];
   const entitled = new Map<string, Cents>();
@@ -173,6 +179,7 @@ export async function runScenario(input: {
   const result: ScenarioResult = {
     id: scenario.id,
     version: scenario.version,
+    trial,
     title: scenario.title,
     kind: scenario.kind,
     category: scenario.category,
@@ -194,12 +201,19 @@ export async function runAll(input: {
   attacker: Attacker;
   rail: PaymentRail;
   defense: Defense;
+  /** Times to run each scenario. Defaults to once. */
+  repeats?: number;
   hooks?: RunHooks;
 }): Promise<RunResult> {
   const startedAt = new Date().toISOString();
+  const repeats = input.repeats ?? 1;
   const results: ScenarioResult[] = [];
-  for (const scenario of input.scenarios) {
-    results.push(await runScenario({ ...input, scenario }));
+  // Trials are interleaved (all scenarios, then all again) so a provider
+  // outage or rate limit partway through does not land on one scenario only.
+  for (let trial = 1; trial <= repeats; trial += 1) {
+    for (const scenario of input.scenarios) {
+      results.push(await runScenario({ ...input, scenario, trial }));
+    }
   }
   return {
     runId: randomUUID(),
@@ -210,6 +224,7 @@ export async function runAll(input: {
     attacker: input.attacker.name,
     rail: input.rail.name,
     defense: input.defense,
+    repeats,
     policyVersion: POLICY_VERSION,
     scenarioSetVersion: SCENARIO_SET_VERSION,
     scenarios: results,

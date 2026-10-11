@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Metrics } from "./metrics";
+import { scenarioStats, type Metrics, type ScenarioStats } from "./metrics";
 import { capAnalysis, REPLAY_CAPS, type CapRow } from "./report";
 import type { RunHooks, RunResult, RunSettings } from "./runner";
 
@@ -11,7 +11,7 @@ export interface RunEvent {
 }
 
 /** Bump when the shape of a recording changes. Files with another version are not listed. */
-export const RECORDING_SCHEMA = 2;
+export const RECORDING_SCHEMA = 3;
 
 /**
  * A finished run as evidence: the settings it ran under, every message, every
@@ -46,7 +46,7 @@ export interface RecordingDir {
 /** Turns runner callbacks into dashboard events. */
 export function eventHooks(emit: (event: RunEvent) => void): RunHooks {
   return {
-    onScenarioStart: (scenario) => emit({ event: "scenario-start", data: { id: scenario.id } }),
+    onScenarioStart: (scenario, trial) => emit({ event: "scenario-start", data: { id: scenario.id, trial } }),
     onCustomerMessage: (id, message) => emit({ event: "customer", data: { id, message } }),
     onToolCall: (id, call) => emit({ event: "tool", data: { id, call } }),
     onAgentReply: (id, message) => emit({ event: "agent", data: { id, message } }),
@@ -60,12 +60,13 @@ export interface DoneData extends RunSettings {
   startedAt: string;
   finishedAt: string;
   metrics: Metrics;
+  byScenario: ScenarioStats[];
   caps: CapRow[];
 }
 
 export function doneEvent(run: RunResult): { event: "done"; data: DoneData } {
   const { scenarios: _scenarios, ...rest } = run;
-  return { event: "done", data: { ...rest, caps: capAnalysis(run, REPLAY_CAPS) } };
+  return { event: "done", data: { ...rest, byScenario: scenarioStats(run.scenarios), caps: capAnalysis(run, REPLAY_CAPS) } };
 }
 
 export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date, harnessVersion: string): Recording {

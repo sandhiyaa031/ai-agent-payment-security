@@ -60,6 +60,8 @@ export interface RunRequest {
   attacker?: string | null;
   /** Optional refund ceiling per order, in dollars. */
   cap?: string | null;
+  /** Optional number of times to run each scenario. */
+  repeat?: string | null;
 }
 
 export interface RunPlan {
@@ -67,7 +69,15 @@ export interface RunPlan {
   subject: string;
   attacker: string;
   defense: Defense;
+  repeats: number;
 }
+
+/** Enough for a first look at variance without exhausting a free model tier. */
+export const MAX_REPEATS = 30;
+/** A hosted copy is shared, so one visitor may not tie it up for long. */
+const HOSTED_MAX_REPEATS = 3;
+
+export const maxRepeats = (hosted: boolean) => (hosted ? HOSTED_MAX_REPEATS : MAX_REPEATS);
 
 /**
  * Turns a request from the command line or the dashboard into a plan, or
@@ -96,8 +106,14 @@ export function planRun(request: RunRequest, options: { hosted: boolean }): RunP
     throw new Error("The toolkit agent refunds through PayPal directly, so it only runs in the sandbox profile.");
   }
 
+  const repeatText = request.repeat?.trim() || "1";
+  const limit = maxRepeats(options.hosted);
+  if (!/^\d+$/.test(repeatText) || Number(repeatText) < 1 || Number(repeatText) > limit) {
+    throw new Error(`The repeat count must be a whole number from 1 to ${limit}.`);
+  }
+
   const defense: Defense = { enforcePolicy: profile.enforcePolicy };
   const cap = request.cap?.trim();
   if (cap) defense.maxRefundCentsPerOrder = toCents(cap);
-  return { profile, subject, attacker, defense };
+  return { profile, subject, attacker, defense, repeats: Number(repeatText) };
 }

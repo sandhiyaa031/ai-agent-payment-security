@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import type { Attacker } from "./attacks/attacker";
 import type { Scenario } from "./attacks/scenarios";
-import { planRun, PROFILES } from "./profiles";
+import { maxRepeats, planRun, PROFILES } from "./profiles";
 import type { PaymentRail } from "./rail/rail";
 import { doneEvent, eventHooks, listRecordings, loadRecording, saveRecording, toRecording, type RecordingDir, type RunEvent } from "./recording";
 import { runAll } from "./runner";
@@ -90,6 +90,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
     const needsPayPal = deps.hosted ? "a private install" : "PayPal sandbox keys";
     return {
       hosted: deps.hosted,
+      maxRepeats: maxRepeats(deps.hosted),
       profiles: [
         { id: "baseline", label: PROFILES.baseline.label, available: true },
         { id: "guarded", label: PROFILES.guarded.label, available: true },
@@ -140,6 +141,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
           subject: url.searchParams.get("subject"),
           attacker: url.searchParams.get("attacker"),
           cap: url.searchParams.get("cap"),
+          repeat: url.searchParams.get("repeat"),
         },
         { hosted: deps.hosted },
       );
@@ -156,6 +158,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
         attacker: deps.createAttacker(plan.attacker),
         rail: deps.createRail(plan.profile.rail),
         defense: plan.defense,
+        repeats: plan.repeats,
         hooks: eventHooks(emit),
       });
       emit(doneEvent(run));

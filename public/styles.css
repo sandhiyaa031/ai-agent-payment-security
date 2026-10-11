@@ -53,6 +53,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px 24px 48px; display: grid
   font: inherit; color: var(--ink); background: var(--card);
   border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; min-width: 170px;
 }
+.controls #repeat { min-width: 80px; }
 .money-input { display: flex; align-items: center; gap: 4px; min-width: 110px; padding: 0 10px; }
 .money-input input { font: inherit; border: 0; outline: 0; width: 70px; padding: 7px 0; background: transparent; color: var(--ink); }
 .money-input:focus-within, .controls select:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }

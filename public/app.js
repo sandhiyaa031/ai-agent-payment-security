@@ -25,7 +25,16 @@ const toolCalls = (row) => row.events.filter((event) => event.type === "tool").m
 
 function statusOf(row) {
   if (row.state === "queued") return { text: "Queued", tone: "queued" };
-  if (row.state === "running") return { text: "Running", tone: "running" };
+  if (row.state === "running") return { text: row.trial > 1 ? `Running ${row.trial}` : "Running", tone: "running" };
+  if (row.trials > 1) {
+    // Several trials: say how many, never a bare verdict.
+    const of = `${row.trials}`;
+    if (row.trialsWithLoss > 0) return { text: `Lost in ${row.trialsWithLoss}/${of}`, tone: "bad" };
+    if (row.trialsUnresolved > 0) return { text: `Unresolved ${row.trialsUnresolved}/${of}`, tone: "warn" };
+    if (row.trialsWithAttempt > 0) return { text: `Tried in ${row.trialsWithAttempt}/${of}`, tone: "warn" };
+    if (row.trialsShort > 0) return { text: `Underpaid ${row.trialsShort}/${of}`, tone: "bad" };
+    return { text: `${row.kind === "attack" ? "Held" : "Handled"} ${of}/${of}`, tone: "good" };
+  }
   if (row.error) return { text: "Error", tone: "warn" };
   if (row.overRefundCents > 0) return { text: "Lost money", tone: "bad" };
   if (row.unresolved) return { text: "Unresolved", tone: "warn" };
@@ -58,7 +67,7 @@ function buildGrid() {
     columnDefs: [
       { headerName: "Scenario", field: "title", flex: 2.4, minWidth: 220, tooltipField: "title" },
       { headerName: "Kind", field: "kind", width: 92 },
-      { headerName: "Result", colId: "result", width: 148, cellRenderer: pill, valueGetter: (p) => statusOf(p.data).text },
+      { headerName: "Result", colId: "result", width: 156, cellRenderer: pill, valueGetter: (p) => statusOf(p.data).text },
       {
         headerName: "Improper asked",
         field: "improperCents",
@@ -111,6 +120,22 @@ function buildRunsGrid() {
       { headerName: "Experiment", field: "profile", width: 140, valueFormatter: (p) => PROFILE_LABELS[p.value] ?? p.value },
       { headerName: "Attacker", field: "attacker", flex: 1, minWidth: 120, tooltipField: "attacker" },
       { headerName: "Defenses", colId: "defenses", width: 150, valueGetter: (p) => defenseText(p.data.defense) },
+      { headerName: "Trials", field: "repeats", width: 90, cellClass: "num", headerTooltip: "How many times each scenario was run." },
+      {
+        headerName: "Attacks with an attempt",
+        colId: "attackAttempts",
+        width: 190,
+        cellClass: "num",
+        headerTooltip: "Attack trials in which the agent made at least one improper refund attempt.",
+        valueGetter: (p) => `${p.data.metrics.attackScenariosWithAttempt} of ${p.data.metrics.attackScenarios}`,
+      },
+      {
+        headerName: "Attacks with a loss",
+        colId: "attackLosses",
+        width: 170,
+        cellClass: "num",
+        valueGetter: (p) => `${p.data.metrics.attackScenariosWithLoss} of ${p.data.metrics.attackScenarios}`,
+      },
       { headerName: "Improper attempts", colId: "attempts", width: 160, cellClass: "num", valueGetter: (p) => p.data.metrics.improperAttempts },
       {
         headerName: "Lost",
@@ -265,6 +290,10 @@ function apply(type, data) {
   if (!row) return;
   if (type === "scenario-start") {
     row.state = "running";
+    row.trial = data.trial ?? 1;
+    // The conversation panel shows the trial in progress; totals keep adding up.
+    row.events = [];
+    row.error = undefined;
     if (followLive) select(row.id);
   } else if (type === "customer" || type === "agent") {
     row.events.push({ type, message: data.message });
@@ -272,18 +301,27 @@ function apply(type, data) {
     row.events.push({ type, call: data.call });
   } else if (type === "scenario") {
     const calls = toolCalls(row);
+    const over = sum(data.orders, (o) => o.overRefundCents);
+    const under = sum(data.orders, (o) => o.underRefundCents);
+    const improper = calls.filter(isImproper).length;
     Object.assign(row, {
       state: "done",
       error: data.error,
       unresolved: data.unresolved,
-      entitledCents: sum(data.orders, (o) => o.entitledCents),
-      overRefundCents: sum(data.orders, (o) => o.overRefundCents),
-      underRefundCents: sum(data.orders, (o) => o.underRefundCents),
-      correctlyRefundedCents: sum(data.orders, (o) => o.correctlyRefundedCents),
-      improperAttempts: calls.filter(isImproper).length,
-      improperCents: sum(calls, (c) => c.improperCents),
+      trials: row.trials + 1,
+      trialsWithLoss: row.trialsWithLoss + (over > 0 ? 1 : 0),
+      trialsWithAttempt: row.trialsWithAttempt + (improper > 0 ? 1 : 0),
+      trialsShort: row.trialsShort + (under > 0 ? 1 : 0),
+      trialsUnresolved: row.trialsUnresolved + (data.unresolved ? 1 : 0),
+      // Money columns add up across trials.
+      entitledCents: row.entitledCents + sum(data.orders, (o) => o.entitledCents),
+      overRefundCents: row.overRefundCents + over,
+      underRefundCents: row.underRefundCents + under,
+      correctlyRefundedCents: row.correctlyRefundedCents + sum(data.orders, (o) => o.correctlyRefundedCents),
+      improperAttempts: row.improperAttempts + improper,
+      improperCents: row.improperCents + sum(calls, (c) => c.improperCents),
     });
-    lostSoFar += row.overRefundCents;
+    lostSoFar += over;
     setLost(lostSoFar);
   }
   refreshRow(row);
@@ -309,6 +347,7 @@ function finish(result) {
   $("unresolvedSub").textContent = `${usd(m.pendingRefundCents)} pending, ${m.scenarioErrors} errors`;
   $("runInfo").textContent =
     `${PROFILE_LABELS[result.profile] ?? result.profile}  ·  ${result.subject}  ·  attacker: ${result.attacker}  ·  defenses: ${defenseText(result.defense)}` +
+    `  ·  ${result.repeats} ${result.repeats === 1 ? "trial" : "trials"} per scenario` +
     `  ·  policy v${result.policyVersion}, scenarios v${result.scenarioSetVersion}  ·  run ${result.runId.slice(0, 8)}`;
 
   const body = $("caps");
@@ -384,6 +423,12 @@ function reset(scenarios) {
     rows.set(s.id, {
       ...s,
       state: "queued",
+      trial: 1,
+      trials: 0,
+      trialsWithLoss: 0,
+      trialsWithAttempt: 0,
+      trialsShort: 0,
+      trialsUnresolved: 0,
       overRefundCents: 0,
       underRefundCents: 0,
       entitledCents: 0,
@@ -427,6 +472,9 @@ async function start() {
   fillSelect($("profile"), options.profiles);
   fillSelect($("subject"), options.subjects);
   fillSelect($("attacker"), options.attackers);
+  for (const option of [...$("repeat").options]) {
+    if (Number(option.value) > options.maxRepeats) option.remove();
+  }
   const showHelp = () => {
     $("profileHelp").textContent = PROFILE_HELP[$("profile").value] ?? "";
   };
@@ -449,6 +497,7 @@ async function start() {
       subject: $("subject").value,
       attacker: $("attacker").value,
       cap,
+      repeat: $("repeat").value,
     });
     begin(`/api/run?${query}`, "Running…");
   });

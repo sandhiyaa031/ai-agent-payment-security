@@ -132,6 +132,18 @@ npm run crashtest -- --subject model --attacker adaptive --record first-real-run
 
 This writes `recordings/first-real-run.json`. Recordings in that folder are part of the repository, and the dashboard lists them under **Saved runs** for anyone to replay, with no keys needed. Runs started from the dashboard are kept in `runs/`, which stays on your machine.
 
+## Stage 4: host a public copy, for free
+
+A hosted copy lets anyone open the dashboard with no setup. It runs only the built-in agents on the pretend payment system and replays the recordings in `recordings/`. It holds no keys, so it cannot spend anything or reach your PayPal sandbox.
+
+1. Create a free account at [render.com](https://render.com) and connect your GitHub account.
+2. Click **New**, then **Blueprint**.
+3. Pick this repository. Render reads `render.yaml` and proposes one free web service called `crashtest`.
+4. Click **Apply**. The first build takes a few minutes.
+5. Open the address Render gives you.
+
+Do not add any keys to the hosted service. The free plan sleeps when idle, so the first visit after a pause takes up to a minute to load.
+
 ## Keeping keys safe
 
 - Keys go only in `.env`. That file is listed in `.gitignore`, so git will not upload it.

@@ -6,11 +6,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp, type AppDeps } from "../src/app";
 import { ScriptedAttacker } from "../src/attacks/attacker";
-import { SCENARIOS } from "../src/attacks/scenarios";
+import { CORE_SCENARIO_IDS, SCENARIOS as ALL_SCENARIOS } from "../src/attacks/scenarios";
 import { planRun } from "../src/profiles";
 import { MockRail } from "../src/rail/mock";
 import { GullibleSubject, RefuseAllSubject, StrictSubject } from "../src/subject/scripted";
 import { spyRail } from "./helpers";
+
+const SCENARIOS = ALL_SCENARIOS.filter((s) => CORE_SCENARIO_IDS.includes(s.id));
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

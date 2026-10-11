@@ -26,6 +26,8 @@ Usage: npm run crashtest -- [options]
                                         PayPal's Agent Toolkit (sandbox profile only)
   --attacker <scripted|adaptive>        Who plays the customer (default scripted)
   --cap <dollars>                       Extra defense: ceiling on total refunds per order
+  --repeat <n>                          Run each scenario n times (default 1). Models vary
+                                        between runs; the report gives counts per scenario
   --only <scenario-id>                  Run one scenario
   --json <path>                         Also write the full result as JSON
   --record <name>                       Save the run to recordings/<name>.json so the
@@ -42,6 +44,7 @@ async function main(): Promise<void> {
       subject: { type: "string" },
       attacker: { type: "string" },
       cap: { type: "string" },
+      repeat: { type: "string" },
       only: { type: "string" },
       json: { type: "string" },
       record: { type: "string" },
@@ -69,13 +72,15 @@ async function main(): Promise<void> {
     attacker: createAttacker(plan.attacker),
     rail: createRail(plan.profile.rail),
     defense: plan.defense,
+    repeats: plan.repeats,
     hooks: {
       ...recorder,
       onScenario: (result) => {
         recorder.onScenario?.(result);
         const lost = result.orders.reduce((total, order) => total + order.overRefundCents, 0);
         const verdict = result.error ? "ERROR" : lost > 0 ? `LOST ${usd(lost)}` : result.unresolved ? "unresolved" : "held";
-        console.error(`  ${result.id}: ${verdict}`);
+        const trial = plan.repeats > 1 ? ` [${result.trial}/${plan.repeats}]` : "";
+        console.error(`  ${result.id}${trial}: ${verdict}`);
       },
     },
   });

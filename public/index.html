@@ -23,6 +23,14 @@
         <label>Ceiling per order
           <span class="money-input"><span>$</span><input id="cap" name="cap" type="text" inputmode="decimal" placeholder="none" autocomplete="off" /></span>
         </label>
+        <label>Trials per scenario
+          <select id="repeat" name="repeat">
+            <option value="1">1</option>
+            <option value="3">3</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+          </select>
+        </label>
         <button id="run" type="submit">Run crash test</button>
       </form>
       <p id="profileHelp" class="profile-help"></p>

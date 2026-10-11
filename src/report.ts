@@ -1,4 +1,5 @@
 import { usd, type Cents } from "./money";
+import { scenarioStats } from "./metrics";
 import { PROFILES } from "./profiles";
 import type { RunResult } from "./runner";
 import type { Defense } from "./subject/tools";
@@ -63,6 +64,7 @@ export function formatReport(run: RunResult): string {
   lines.push(`Payment rail     : ${run.rail}`);
   lines.push(`Defenses         : ${describeDefense(run.defense)}`);
   lines.push(`Versions         : policy ${run.policyVersion}, scenarios ${run.scenarioSetVersion}`);
+  lines.push(`Trials           : ${run.repeats} per scenario, ${m.scenarios} scenario runs in total`);
   lines.push("");
   lines.push("WHAT THE AGENT TRIED (counted whether or not it succeeded)");
   lines.push(`  Refund attempts              : ${m.refundAttempts}`);
@@ -91,17 +93,27 @@ export function formatReport(run: RunResult): string {
   lines.push(`  Scenario errors              : ${m.scenarioErrors}`);
   lines.push(`  Unresolved scenarios         : ${m.unresolvedScenarios} of ${m.scenarios}`);
   lines.push("");
-  lines.push("Scenario                         Kind     Attempted   Over-refund  Owed paid");
-  for (const s of run.scenarios) {
-    const sum = (pick: (order: (typeof s.orders)[number]) => Cents) => s.orders.reduce((total, order) => total + pick(order), 0);
-    const attempted = s.toolCalls.reduce((total, call) => total + call.improperCents, 0);
-    const owed = sum((o) => o.entitledCents);
-    const owedText = owed === 0 ? "-" : `${usd(sum((o) => o.correctlyRefundedCents))} of ${usd(owed)}`;
-    const flag = s.error ? "  ERROR" : s.unresolved ? "  UNRESOLVED" : "";
-    lines.push(`${s.id.padEnd(32)} ${s.kind.padEnd(8)} ${usd(attempted).padEnd(11)} ${usd(sum((o) => o.overRefundCents)).padEnd(12)} ${owedText}${flag}`);
+  if (run.repeats > 1) {
+    lines.push(`Per scenario, over ${run.repeats} trials each (counts are trials, not percentages of a large sample):`);
+    lines.push("Scenario                         Kind     Trials  Attempted in  Lost in  Short-changed in  Unresolved  Total lost");
+    for (const s of scenarioStats(run.scenarios)) {
+      lines.push(
+        `${s.id.padEnd(32)} ${s.kind.padEnd(8)} ${String(s.trials).padEnd(7)} ${String(s.trialsWithImproperAttempt).padEnd(13)} ${String(s.trialsWithLoss).padEnd(8)} ${String(s.trialsShortChanged).padEnd(17)} ${String(s.trialsUnresolved).padEnd(11)} ${usd(s.overRefundCents)}`,
+      );
+    }
+  } else {
+    lines.push("Scenario                         Kind     Attempted   Over-refund  Owed paid");
+    for (const s of run.scenarios) {
+      const sum = (pick: (order: (typeof s.orders)[number]) => Cents) => s.orders.reduce((total, order) => total + pick(order), 0);
+      const attempted = s.toolCalls.reduce((total, call) => total + call.improperCents, 0);
+      const owed = sum((o) => o.entitledCents);
+      const owedText = owed === 0 ? "-" : `${usd(sum((o) => o.correctlyRefundedCents))} of ${usd(owed)}`;
+      const flag = s.error ? "  ERROR" : s.unresolved ? "  UNRESOLVED" : "";
+      lines.push(`${s.id.padEnd(32)} ${s.kind.padEnd(8)} ${usd(attempted).padEnd(11)} ${usd(sum((o) => o.overRefundCents)).padEnd(12)} ${owedText}${flag}`);
+    }
   }
   for (const s of run.scenarios) {
-    if (s.error) lines.push(`\n  ${s.id}: ${s.error}`);
+    if (s.error) lines.push(`\n  ${s.id} (trial ${s.trial}): ${s.error}`);
   }
   lines.push("");
   lines.push("What a per-order refund ceiling would have stopped (a replay of this run's");

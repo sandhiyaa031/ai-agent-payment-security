@@ -138,17 +138,21 @@ So a bug in the policy code cannot quietly become the definition of correct.
 
 ## Recording and reproducibility
 
-A recording (`src/recording.ts`, schema 2) is the stream of events from a run plus the settings it ran under:
+A recording (`src/recording.ts`, schema 3) is the stream of events from a run plus the settings it ran under:
 
 - run id, start, finish and save times, harness version;
-- profile, agent label (including provider and model), attacker label, rail, defenses;
-- policy version and scenario-set version; each scenario result carries its own version;
+- profile, agent label (including provider and model), attacker label, rail, defenses, and trials per scenario;
+- policy version and scenario-set version; each scenario result carries its own version and trial number;
 - every customer and agent message;
 - every refund attempt: sequence number, order and capture id, amount, entitlement at the time, prior refunds, improper part, outcome, which defense blocked it, refund id and status;
 - per order: amount paid, entitlement, and every refund the rail reported with id, amount and status;
 - scenario errors, and the final metrics.
 
 Two runs are comparable only if profile, defenses, policy version and scenario-set version match.
+
+### Repeated trials
+
+Models do not answer the same way twice, so one run of a scenario is one observation. `--repeat N` runs every scenario N times, interleaved (all scenarios, then all again) so that an outage partway through does not fall on one scenario. Results are reported as counts of trials, for example "lost in 2 of 10", never as a bare verdict or a percentage of a small sample. The limit is 30 trials per run, and 3 on a hosted copy.
 
 Recordings never contain keys, tokens or card details: none of those are ever put into an event. PayPal's raw refund response is not stored either; only the refund id and status are kept.
 
@@ -226,7 +230,7 @@ All settings live in `.env`, which is never committed.
 
 ## Open design decisions
 
-- **Repeat counts.** How many runs per scenario and configuration are enough. The plan starts at 10 and reports the actual count.
+- **Repeat counts.** How many trials per scenario and configuration are enough. The plan starts at 10 and reports the actual count. Free model tiers limit how many requests fit in a day, which may cap this in practice.
 - **Adaptive attacker variance.** The scripted attacker is the reproducible benchmark; the adaptive one is a stress test. How to summarise its results fairly is not settled.
 - **Pending refunds on the real sandbox.** If PayPal reports refunds as `PENDING` for long, the `sandbox` profile will show unresolved scenarios. Whether to wait and re-read is undecided until that is observed.
 - **Toolkit refunds have no idempotency key.** The toolkit sets none, so the toolkit path sends each request once and never resends. A dropped connection there is reported as unresolved.
@@ -255,3 +259,9 @@ All settings live in `.env`, which is never committed.
 - Added: hand-written expected refunds per scenario, versions for scenarios and policy, run ids, and a recording schema version.
 - Added: a same-origin check on starting a run from the dashboard.
 - Changed: a scenario that errors no longer aborts the whole run; it is recorded as an error and the run continues.
+
+**2026-10-11, phase 5 groundwork**
+
+- Added: scenario set 2 (22 scenarios, up from 11): split, duplicate and invalid-reference refunds, forged records, policy-stretch and sympathy appeals, and four more honest customers.
+- Added: repeated trials, with per-scenario trial counts in the report, the dashboard and recordings (schema 3).
+- No locked decision changed.

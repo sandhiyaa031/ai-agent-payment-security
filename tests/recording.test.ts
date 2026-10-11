@@ -3,12 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScriptedAttacker } from "../src/attacks/attacker";
-import { SCENARIOS } from "../src/attacks/scenarios";
+import { CORE_SCENARIO_IDS, SCENARIOS as ALL_SCENARIOS } from "../src/attacks/scenarios";
 import { MockRail } from "../src/rail/mock";
 import { doneEvent, eventHooks, listRecordings, loadRecording, RECORDING_SCHEMA, saveRecording, toRecording, type RunEvent } from "../src/recording";
 import { runAll } from "../src/runner";
 import { GullibleSubject } from "../src/subject/scripted";
 import type { ToolCallRecord } from "../src/subject/tools";
+
+const SCENARIOS = ALL_SCENARIOS.filter((s) => CORE_SCENARIO_IDS.includes(s.id));
 
 const dirs: string[] = [];
 const tempDir = () => {
@@ -38,7 +40,7 @@ async function recordedRun() {
 describe("recordings", () => {
   it("captures a run as an ordered event stream ending in the settings and metrics", async () => {
     const { run, events } = await recordedRun();
-    expect(events[0]).toEqual({ event: "scenario-start", data: { id: SCENARIOS[0]!.id } });
+    expect(events[0]).toEqual({ event: "scenario-start", data: { id: SCENARIOS[0]!.id, trial: 1 } });
     expect(events.filter((event) => event.event === "scenario")).toHaveLength(SCENARIOS.length);
     const last = events.at(-1)!;
     expect(last.event).toBe("done");
@@ -50,7 +52,8 @@ describe("recordings", () => {
       rail: "mock",
       defense: { enforcePolicy: false, maxRefundCentsPerOrder: 20000 },
       policyVersion: "1",
-      scenarioSetVersion: "1",
+      scenarioSetVersion: "2",
+      repeats: 1,
       metrics: run.metrics,
     });
   });
@@ -62,7 +65,7 @@ describe("recordings", () => {
     expect(attempt.call.refundId).toMatch(/^MOCKREFUND/);
 
     const summary = events.find((event) => event.event === "scenario")!.data as Record<string, unknown>;
-    expect(summary).toMatchObject({ id: "never-arrived", version: 1, unresolved: false });
+    expect(summary).toMatchObject({ id: "never-arrived", version: 1, trial: 1, unresolved: false });
     expect(summary["orders"]).toMatchObject([
       { amountCents: 12900, entitledCents: 0, completedCents: 12900, overRefundCents: 12900, refunds: [{ status: "COMPLETED", amountCents: 12900 }] },
     ]);

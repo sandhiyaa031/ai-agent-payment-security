@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ScriptedAttacker } from "../src/attacks/attacker";
-import { SCENARIOS, type Scenario } from "../src/attacks/scenarios";
+import { CORE_SCENARIO_IDS, SCENARIOS, type Scenario } from "../src/attacks/scenarios";
 import { computeMetrics, scoreOrder } from "../src/metrics";
 import { toCents, toDecimal } from "../src/money";
 import { MockRail } from "../src/rail/mock";
@@ -13,7 +13,10 @@ import type { Subject } from "../src/subject/subject";
 import type { Defense } from "../src/subject/tools";
 import { NO_DEFENSE, POLICY_DEFENSE, scriptedRefunds, spyRail } from "./helpers";
 
-function run(subject: Subject, defense: Defense = NO_DEFENSE, scenarios: Scenario[] = SCENARIOS) {
+/** The original eleven scenarios. The hand-computed totals in this file are for exactly these. */
+const CORE = SCENARIOS.filter((s) => CORE_SCENARIO_IDS.includes(s.id));
+
+function run(subject: Subject, defense: Defense = NO_DEFENSE, scenarios: Scenario[] = CORE) {
   return runAll({
     profile: defense.enforcePolicy ? "guarded" : "baseline",
     scenarios,
@@ -321,7 +324,7 @@ describe("one execution path for every agent", () => {
 
   it("on a real provider, no improper refund is ever sent, whatever the agent does", async () => {
     const spied = spyRail(new MockRail(), { external: true, name: "paypal-sandbox" });
-    const result = await runAll({ profile: "sandbox", scenarios: SCENARIOS, subject: new GullibleSubject(), attacker: new ScriptedAttacker(), rail: spied.rail, defense: POLICY_DEFENSE });
+    const result = await runAll({ profile: "sandbox", scenarios: CORE, subject: new GullibleSubject(), attacker: new ScriptedAttacker(), rail: spied.rail, defense: POLICY_DEFENSE });
     expect(result.metrics.overRefundCents).toBe(0);
     expect(result.metrics.improperAttemptsBlocked).toBeGreaterThan(0);
     // Exactly the three owed refunds reached the provider, for exactly the owed amounts.
@@ -336,10 +339,10 @@ describe("one execution path for every agent", () => {
 describe("reporting", () => {
   it("records what a result was produced under", async () => {
     const result = await run(new GullibleSubject(), { enforcePolicy: true, maxRefundCentsPerOrder: 20000 });
-    expect(result).toMatchObject({ profile: "guarded", rail: "mock", policyVersion: "1", scenarioSetVersion: "1", attacker: "scripted" });
+    expect(result).toMatchObject({ profile: "guarded", rail: "mock", policyVersion: "1", scenarioSetVersion: "2", repeats: 1, attacker: "scripted" });
     expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
     expect(Date.parse(result.finishedAt)).toBeGreaterThanOrEqual(Date.parse(result.startedAt));
-    expect(result.scenarios.every((s) => s.version === 1)).toBe(true);
+    expect(result.scenarios.every((s) => s.version === 1 && s.trial === 1)).toBe(true);
     expect(computeMetrics(result.scenarios)).toEqual(result.metrics);
   });
 

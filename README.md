@@ -80,6 +80,7 @@ Refunds that are `PENDING` are reported separately and mark the scenario unresol
 | `--subject` | `gullible`, `strict`, `refuse-all`, `model`, `toolkit` | The agent under test. `model` is an AI agent on the provider set in `.env`. `toolkit` is the same agent with PayPal's own Agent Toolkit `create_refund` as its refund tool; it runs only in the `sandbox` profile. |
 | `--attacker` | `scripted`, `adaptive` | Fixed messages, or a model that changes tactics |
 | `--cap <dollars>` | number | Extra defense: a ceiling on total refunds per order |
+| `--repeat <n>` | 1 to 30 | Run each scenario n times and report counts of trials |
 | `--only <id>` | scenario id | Run one scenario |
 | `--json <path>` | file path | Save transcripts, tool calls and results |
 | `--record <name>` | name | Save the run to `recordings/` so the dashboard can replay it |
@@ -96,7 +97,7 @@ The design decisions are in [ARCHITECTURE.md](ARCHITECTURE.md), and the plan wit
 | `src/subject/` | Agents under test. `toolkit.ts` hands the model the real `@paypal/agent-toolkit` tools and sends its refund calls through the same checkpoint. |
 | `src/profiles.ts` | The three evaluation profiles and what each is allowed to run. |
 | `src/metrics.ts` | The scoring definitions. |
-| `src/attacks/` | Scenarios, each with a hand-written expected refund, and the scripted and adaptive attackers. |
+| `src/attacks/` | 22 scenarios (15 attacks, 7 honest customers), each with a hand-written expected refund, and the scripted and adaptive attackers. |
 | `src/llm/` | The AI connection: one adapter for any OpenAI-format service and one for Anthropic, behind a shared interface. |
 | `src/runner.ts` | Runs a scenario and reads the verdict from the rail. |
 | `src/recording.ts` | Saves a run as a stream of events and loads it back for replay. |

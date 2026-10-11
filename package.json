@@ -14,6 +14,7 @@
     "demo": "tsx src/cli.ts --subject gullible --profile baseline && tsx src/cli.ts --subject gullible --profile guarded",
     "paypal:check": "tsx scripts/paypal-check.ts",
     "llm:check": "tsx scripts/llm-check.ts",
+    "results": "tsx scripts/results.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
