@@ -12,14 +12,14 @@ How to read this:
 
 | Phase | Status |
 |---|---|
-| 0. Idea and rules | Done |
+| 0. Idea and rules | Done, except that the repository is still private |
 | 1. Core engine | Done (offline tests) |
 | 2. Dashboard | Done (offline tests and a manual browser check) |
 | 3. Real agents | Built (offline tests only); not proven live |
 | 4. Live verification | AI model verified; PayPal sandbox blocked on card-payment setting |
 | 5. More attacks and evidence | Mostly done; four runs in progress, limited by the free daily allowance; more trials and the adaptive attacker outstanding |
 | 6. Hosted demo | Done: deployed on Render and checked |
-| 7. Submission | Not started |
+| 7. Submission | Entry rules checked against the repository; nothing else started |
 
 ---
 
@@ -31,7 +31,8 @@ How to read this:
 - [x] Read the Devpost overview, official rules and resources
 - [x] Explore and reject weaker ideas
 - [x] Lock the topic: Crashtest, a red-team benchmark for AI agents that refund money through PayPal
-- [x] Public repository with an MIT license
+- [x] MIT license file in the repository
+- [ ] **(you)** Make the repository public. Checked 11 October: GitHub answers "not found" to anyone who is not signed in, so it is private. This box was ticked earlier without that check, which was a mistake. The whole history has been scanned and holds no keys or card details.
 
 ## Phase 1: Core engine
 
@@ -142,8 +143,29 @@ Deferred to a later version: invoice and subscription attacks. They need differe
 - [ ] Short write-up of findings, with numbers and sample counts from phase 5
 - [ ] Demo video under 3 minutes, on YouTube, public, with no copyrighted music
 - [ ] Devpost text description and list of tools used
-- [ ] Check every submission requirement against the official rules
 - [ ] **(you)** Submit on Devpost by 10 November
+
+### Entry rules checklist
+
+From section 4 of the [official rules](https://paypalaihackathon.devpost.com/rules), read on 11 October 2026.
+
+- [ ] **PayPal's developer platform is central and working.** This is the pass/fail first stage of judging. The PayPal code is written and tested offline but has never run against the sandbox (phase 4). This is the largest risk to the entry.
+- [x] Uses an AI tool or model (three free models through Groq; any OpenAI-format service works)
+- [x] New project, started inside the submission period (first commit 8 October 2026)
+- [ ] **(you)** Code repository is public (see phase 0)
+- [ ] Open-source license shows in the repository's About section (the MIT file is there; confirm once the repository is public)
+- [x] Repository holds all source, assets and setup instructions (README, SETUP.md)
+- [x] Judges can run a working build: hosted demo link, plus setup and run instructions
+- [ ] Hosted demo and repository stay up, free and unrestricted, until judging ends on 15 December 2026
+- [ ] Text description of features and functionality
+- [ ] Video: under three minutes, shows the project working, public on YouTube, link on the form
+- [ ] Video has no copyrighted music and no third-party trademarks (record in a clean browser window with the bookmarks bar hidden)
+- [x] Everything is in English
+- [x] Third-party code is used within its license: PayPal Agent Toolkit (ISC), AG Grid Community (MIT), Anthropic SDK (MIT)
+- [ ] **(you)** You meet the eligibility rules: of legal adult age where you live, and not in an excluded region
+- [ ] **(you)** On the form, opt in to the AG Grid and Render sponsor prizes
+
+Judging uses five equally weighted criteria: technological implementation (how thoroughly PayPal and AI are used), design (a complete product, not a proof of concept), potential impact, innovation, and presentation (the video shows it working end to end).
 
 ---
 
