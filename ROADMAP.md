@@ -2,7 +2,7 @@
 
 Deadline: **12 November 2026, 12:00 pm Pacific**. Target: submit by **10 November**.
 
-**Current phase: 5 and 6 in parallel.** Phase 4 is half done: the AI model is verified live, and the PayPal sandbox is blocked on an account setting (see phase 4). Work that does not need PayPal is going ahead.
+**Current phase: 5.** Phase 6 is done: the public copy is live at https://crashtest-7wl9.onrender.com. Phase 4 is half done: the AI model is verified live, and the PayPal sandbox is blocked on an account setting (see phase 4). Work that does not need PayPal is going ahead.
 
 How to read this:
 
@@ -17,8 +17,8 @@ How to read this:
 | 2. Dashboard | Done (offline tests and a manual browser check) |
 | 3. Real agents | Built (offline tests only); not proven live |
 | 4. Live verification | AI model verified; PayPal sandbox blocked on card-payment setting |
-| 5. More attacks and evidence | Mostly done; more trials and two runs outstanding |
-| 6. Hosted demo | Built locally; not deployed |
+| 5. More attacks and evidence | Mostly done; four runs in progress, limited by the free daily allowance; more trials and the adaptive attacker outstanding |
+| 6. Hosted demo | Done: deployed on Render and checked |
 | 7. Submission | Not started |
 
 ---
@@ -93,7 +93,7 @@ How to read this:
 - [ ] Full run, `baseline`, AI agent, adaptive attacker
 - [ ] Full run, `sandbox`, AI agent: only owed refunds appear in the PayPal sandbox dashboard
 - [ ] Full run, `sandbox`, Agent Toolkit agent
-- [ ] Free-tier rate limits survive a full run without a scenario error
+- [ ] Free-tier rate limits survive a full run without a scenario error (a run now waits out a used-up daily allowance instead of failing; offline tests pass, and the runs in progress are the live proof)
 - [x] First real results recorded into `recordings/` (test rail only)
 
 ## Phase 5: More attacks and evidence
@@ -115,7 +115,7 @@ In priority order:
 - [ ] Adaptive attacker results reported separately, as a stress test
 - [x] Hardening guide (HARDENING.md), each recommendation tied to a measured result
 - [ ] Raise trials from 3 to 10 per scenario (limited by the free model tier's daily quota)
-- [ ] Guarded runs for the other two models, and the hardened-prompt variant (queued)
+- [ ] Guarded runs for the other two models, and the hardened-prompt variant (running; all three models used up their free daily allowance on 11 October, so these now advance only as it refills)
 
 Deferred to a later version: invoice and subscription attacks. They need different tools and a scoring method that can be defended.
 
@@ -126,11 +126,12 @@ Deferred to a later version: invoice and subscription attacks. They need differe
 **Depends on:** phase 4 for the recordings.
 
 - [x] Hosted mode written and tested locally
-- [x] Render deployment file written (not yet deployed, so not yet proven)
+- [x] Render deployment file written
 - [x] **(you)** Create a free Render account and connect the repository
-- [ ] **(you)** Create the Blueprint service on Render
-- [ ] Deployed copy loads and replays the recorded real runs
-- [ ] Link added to the README
+- [x] **(you)** Create the Blueprint service on Render
+- [x] Deployed copy loads and replays the recorded real runs (checked 11 October: page, saved-runs table, a built-in run, a replay, and the refusals for anything needing a key)
+- [x] Link added to the README
+- [x] The hosted copy no longer loads PayPal's toolkit, which it never uses (about 80 MB less memory, measured on a local copy; tested)
 
 ## Phase 7: Submission
 
@@ -149,4 +150,4 @@ Deferred to a later version: invoice and subscription attacks. They need differe
 ## Sponsor prizes in reach
 
 - **AG Grid:** used for the scenario and saved-runs tables. Eligible now.
-- **Render:** eligible once phase 6 is deployed.
+- **Render:** the public copy is deployed there. Eligible now.

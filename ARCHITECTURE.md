@@ -225,6 +225,7 @@ All settings live in `.env`, which is never committed.
 | `PAYPAL_TEST_CARD_NUMBER`, `_EXPIRY`, `_CVV` | Sandbox test card used to take test payments |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | AI provider, key and optional model name |
 | `CRASHTEST_SUBJECT_MODEL`, `CRASHTEST_ATTACKER_MODEL` | Separate models for the agent and the attacker |
+| `LLM_MAX_WAIT_MINUTES` | How long one model request may wait out rate limits before it counts as failed (default 60) |
 | `CRASHTEST_PUBLIC` | Set to `1` for hosted mode |
 | `HOST`, `PORT` | Dashboard address; local-only by default |
 

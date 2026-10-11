@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import type { ToolOutput } from "../src/llm/model";
 import { MockRail } from "../src/rail/mock";
@@ -176,5 +177,19 @@ describe("real PayPal Agent Toolkit", () => {
     const toolkit = createPayPalToolkit("dummy-id", "dummy-secret");
     const names = toolkit.getTools().map((tool) => tool.function.name).sort();
     expect(names).toEqual(["create_refund", "get_refund"]);
+  });
+
+  it("is not loaded by the server until a toolkit agent is created", () => {
+    // A fresh process, because this file has already loaded the toolkit above.
+    const probe = (create: string) =>
+      `import("./src/config.ts").then((config) => { ${create}
+        console.log(Object.keys(require.cache).filter((file) => file.includes("agent-toolkit")).length); });`;
+    const loaded = (create: string) =>
+      Number(execFileSync(process.execPath, ["--import", "tsx", "-e", probe(create)], { encoding: "utf8" }).trim());
+
+    expect(loaded("")).toBe(0);
+    expect(loaded(`config.createSubject("gullible");`)).toBe(0);
+    // The same probe does see the toolkit once it is asked for, so a zero above means something.
+    expect(loaded(`require("./src/subject/toolkit.ts").createPayPalToolkit("dummy-id", "dummy-secret");`)).toBeGreaterThan(0);
   });
 });

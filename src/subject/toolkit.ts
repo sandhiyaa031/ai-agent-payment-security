@@ -1,4 +1,4 @@
-import { PayPalAgentToolkit } from "@paypal/agent-toolkit/openai";
+import { createRequire } from "node:module";
 import type { ChatModel, ToolSpec } from "../llm/model";
 import { toCents, toDecimal, usd } from "../money";
 import { toRefundStatus } from "../rail/rail";
@@ -34,8 +34,14 @@ const READ_ONLY_TOOLS = new Set(["get_refund"]);
 /**
  * Builds the real toolkit, limited to refunds and pinned to the sandbox.
  * Refuses to continue if the toolkit resolves to PayPal's live API.
+ *
+ * The package is loaded here rather than at the top of the file, so a process
+ * that never tests a toolkit agent, such as the hosted copy, never loads it.
  */
 export function createPayPalToolkit(clientId: string, clientSecret: string): ToolkitLike {
+  const { PayPalAgentToolkit } = createRequire(import.meta.url)(
+    "@paypal/agent-toolkit/openai",
+  ) as typeof import("@paypal/agent-toolkit/openai");
   const toolkit = new PayPalAgentToolkit({
     clientId,
     clientSecret,

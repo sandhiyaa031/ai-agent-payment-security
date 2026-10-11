@@ -7,6 +7,8 @@ import { createModel, modelSettings } from "../src/llm";
  */
 async function main(): Promise<void> {
   loadEnv();
+  // A setup check should report a used-up allowance, not sit it out.
+  process.env["LLM_MAX_WAIT_MINUTES"] ??= "1";
   const settings = modelSettings("subject");
   console.log(`Provider: ${settings.provider}   Model: ${settings.model}`);
   const model = createModel("subject");

@@ -7,6 +7,10 @@ export interface OpenAiCompatibleOptions {
   model: string;
   /** Omitted for local servers that need no key. */
   apiKey?: string;
+  /** The longest one request may spend waiting out rate limits in total. Defaults to an hour. */
+  patienceMs?: number;
+  /** Called before every wait, so a long pause is not mistaken for a hang. */
+  onWait?: (ms: number) => void;
   /** Tests inject these. */
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -30,8 +34,23 @@ interface CompletionResponse {
 
 /** Free tiers rate-limit hard, so a run waits and retries instead of failing. */
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
-const MAX_ATTEMPTS = 7;
-const MAX_WAIT_MS = 90_000;
+/** Failures that give no advice on when to come back (server errors, dropped connections) get this many tries. */
+const MAX_BLIND_ATTEMPTS = 7;
+const MAX_BLIND_WAIT_MS = 90_000;
+/**
+ * A rate limit that names its own wait is obeyed until one request has waited
+ * this long in total. A used-up daily allowance refills slowly and can ask for
+ * many minutes at a time; giving up early would record the scenario as an error.
+ */
+const DEFAULT_PATIENCE_MS = 60 * 60_000;
+/** A single wait is capped here, and then the provider is asked again. */
+const MAX_ADVISED_WAIT_MS = 15 * 60_000;
+
+/**
+ * Groq puts the account's organization id in its rate-limit messages. Error
+ * text ends up in recordings, which are public, so the id is left out.
+ */
+const withoutAccountId = (message: string) => message.replace(/\borg_\w+/g, "org_(hidden)");
 
 /**
  * Any service that speaks the OpenAI chat-completions format: Groq,
@@ -104,9 +123,27 @@ export class OpenAiCompatibleModel implements ChatModel {
     if (this.options.apiKey) headers["Authorization"] = `Bearer ${this.options.apiKey}`;
     const url = `${this.options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
+    const patienceMs = this.options.patienceMs ?? DEFAULT_PATIENCE_MS;
+    let waitedMs = 0;
+    let blindFailures = 0;
+    const backOff = (attempt: number) => this.pause(Math.min(2 ** attempt * 1000, MAX_BLIND_WAIT_MS));
+
     for (let attempt = 1; ; attempt += 1) {
-      const response = await this.fetchImpl(url, { method: "POST", headers, body: JSON.stringify(payload) });
-      const text = await response.text();
+      let response: Response;
+      let text: string;
+      try {
+        response = await this.fetchImpl(url, { method: "POST", headers, body: JSON.stringify(payload) });
+        text = await response.text();
+      } catch (error) {
+        // No answer arrived, for example because the connection dropped. Asking again is safe.
+        blindFailures += 1;
+        if (blindFailures >= MAX_BLIND_ATTEMPTS) {
+          const reason = error instanceof Error ? error.message : String(error);
+          throw new Error(`${this.options.provider} could not be reached: ${reason}`);
+        }
+        await backOff(attempt);
+        continue;
+      }
       let body: CompletionResponse = {};
       try {
         body = text ? (JSON.parse(text) as CompletionResponse) : {};
@@ -115,14 +152,27 @@ export class OpenAiCompatibleModel implements ChatModel {
       }
       if (response.ok) return body;
 
-      if (RETRY_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
+      if (RETRY_STATUSES.has(response.status)) {
         const retryAfter = Number(response.headers.get("retry-after"));
-        const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2 ** attempt * 1000;
-        await this.sleep(Math.min(wait, MAX_WAIT_MS));
-        continue;
+        if (Number.isFinite(retryAfter) && retryAfter > 0) {
+          const wait = Math.min(retryAfter * 1000, MAX_ADVISED_WAIT_MS);
+          if (waitedMs + wait <= patienceMs) {
+            waitedMs += wait;
+            await this.pause(wait);
+            continue;
+          }
+        } else if ((blindFailures += 1) < MAX_BLIND_ATTEMPTS) {
+          await backOff(attempt);
+          continue;
+        }
       }
-      const detail = body.error?.message ?? (text.slice(0, 200) || response.statusText);
+      const detail = withoutAccountId(body.error?.message ?? (text.slice(0, 200) || response.statusText));
       throw new Error(`${this.options.provider} request failed (${response.status}): ${detail}`);
     }
+  }
+
+  private async pause(ms: number): Promise<void> {
+    this.options.onWait?.(ms);
+    await this.sleep(ms);
   }
 }

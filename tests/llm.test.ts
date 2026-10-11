@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createModel, modelConfigured, modelSettings } from "../src/llm";
 import { AnthropicModel } from "../src/llm/anthropic";
 import type { ToolSpec } from "../src/llm/model";
-import { OpenAiCompatibleModel } from "../src/llm/openai-compatible";
+import { OpenAiCompatibleModel, type OpenAiCompatibleOptions } from "../src/llm/openai-compatible";
 
 const LOOKUP: ToolSpec = {
   name: "get_order",
@@ -35,7 +35,7 @@ const message = (content: string | null, tool_calls?: unknown[], finish_reason =
 });
 const rawCall = (id: string, name: string, args: string) => ({ id, type: "function", function: { name, arguments: args } });
 
-function openAiModel(fetchImpl: typeof fetch, waits: number[] = []) {
+function openAiModel(fetchImpl: typeof fetch, waits: number[] = [], extra: Partial<OpenAiCompatibleOptions> = {}) {
   return new OpenAiCompatibleModel({
     provider: "groq",
     baseUrl: "https://llm.test/v1/",
@@ -45,8 +45,15 @@ function openAiModel(fetchImpl: typeof fetch, waits: number[] = []) {
     sleep: async (ms) => {
       waits.push(ms);
     },
+    ...extra,
   });
 }
+
+const dailyLimit = (retryAfter: string) => ({
+  status: 429,
+  headers: { "retry-after": retryAfter },
+  body: { error: { message: "Rate limit reached in organization `org_01abcXYZ` on tokens per day (TPD)." } },
+});
 
 describe("OpenAI-compatible model", () => {
   it("runs a tool-calling exchange and keeps the history in the provider's format", async () => {
@@ -107,6 +114,61 @@ describe("OpenAI-compatible model", () => {
     expect(turn.text).toBe("done");
     expect(sent).toHaveLength(3);
     expect(waits).toEqual([3000, 4000]);
+  });
+
+  it("sits out a used-up daily allowance for as long as the provider asks, one capped wait at a time", async () => {
+    const waits: number[] = [];
+    const announced: number[] = [];
+    // 701 s is what Groq asked for on a real run; the old limit of 7 tries of 90 s gave up before that.
+    const { sent, fetchImpl } = fakeServer([dailyLimit("701"), dailyLimit("1200"), dailyLimit("5"), message("done")]);
+    const model = openAiModel(fetchImpl, waits, { onWait: (ms) => announced.push(ms) });
+    expect((await model.start("s", []).say("x")).text).toBe("done");
+    expect(sent).toHaveLength(4);
+    expect(waits).toEqual([701_000, 900_000, 5_000]);
+    expect(announced).toEqual(waits);
+  });
+
+  it("stops waiting once one request has used up its patience, and keeps the account id out of the error", async () => {
+    const waits: number[] = [];
+    const { sent, fetchImpl } = fakeServer([dailyLimit("400"), dailyLimit("400"), message("never reached")]);
+    const model = openAiModel(fetchImpl, waits, { patienceMs: 10 * 60_000 });
+    const failure = await model.start("s", []).say("x").then(
+      () => undefined,
+      (error: Error) => error.message,
+    );
+    expect(failure).toBe("groq request failed (429): Rate limit reached in organization `org_(hidden)` on tokens per day (TPD).");
+    expect(sent).toHaveLength(2);
+    expect(waits).toEqual([400_000]);
+  });
+
+  it("asks again when the connection drops, and gives up after seven failures in a row", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const flaky = (async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return new Response(JSON.stringify(message("back").body));
+    }) as typeof fetch;
+    expect((await openAiModel(flaky, waits).start("s", []).say("x")).text).toBe("back");
+    expect(waits).toEqual([2000]);
+
+    waits.length = 0;
+    calls = 0;
+    const down = (async () => {
+      calls += 1;
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    await expect(openAiModel(down, waits).start("s", []).say("x")).rejects.toThrow("groq could not be reached: fetch failed");
+    expect(calls).toBe(7);
+    expect(waits).toEqual([2000, 4000, 8000, 16000, 32000, 64000]);
+  });
+
+  it("still gives up on a server error that keeps coming back with no advice", async () => {
+    const waits: number[] = [];
+    const { sent, fetchImpl } = fakeServer(Array.from({ length: 8 }, () => ({ status: 503, body: { error: { message: "overloaded" } } })));
+    await expect(openAiModel(fetchImpl, waits).start("s", []).say("x")).rejects.toThrow("groq request failed (503): overloaded");
+    expect(sent).toHaveLength(7);
+    expect(waits).toHaveLength(6);
   });
 
   it("gives up with the provider's message on an error that will not go away", async () => {
@@ -171,7 +233,16 @@ describe("Anthropic model", () => {
 });
 
 describe("model settings from .env", () => {
-  const NAMES = ["LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "ANTHROPIC_API_KEY", "CRASHTEST_SUBJECT_MODEL", "CRASHTEST_ATTACKER_MODEL"];
+  const NAMES = [
+    "LLM_PROVIDER",
+    "LLM_API_KEY",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_MAX_WAIT_MINUTES",
+    "ANTHROPIC_API_KEY",
+    "CRASHTEST_SUBJECT_MODEL",
+    "CRASHTEST_ATTACKER_MODEL",
+  ];
   const saved = Object.fromEntries(NAMES.map((name) => [name, process.env[name]]));
   const set = (values: Record<string, string>) => {
     for (const name of NAMES) delete process.env[name];
@@ -196,6 +267,15 @@ describe("model settings from .env", () => {
     expect(modelSettings("subject")).toEqual({ provider: "groq", model: "openai/gpt-oss-120b", baseUrl: "https://api.groq.com/openai/v1", apiKey: "k" });
     expect(modelSettings("attacker").model).toBe("attack-model");
     expect(createModel("subject").label).toBe("groq openai/gpt-oss-120b");
+  });
+
+  it("takes the rate-limit patience from LLM_MAX_WAIT_MINUTES and rejects a value that is not a number of minutes", () => {
+    set({ LLM_PROVIDER: "groq", LLM_API_KEY: "k", LLM_MAX_WAIT_MINUTES: "0" });
+    expect(createModel("subject").label).toBe("groq openai/gpt-oss-120b");
+    for (const bad of ["soon", "-5"]) {
+      set({ LLM_PROVIDER: "groq", LLM_API_KEY: "k", LLM_MAX_WAIT_MINUTES: bad });
+      expect(() => createModel("subject")).toThrow(/LLM_MAX_WAIT_MINUTES/);
+    }
   });
 
   it("needs a key for hosted providers but not for a local one", () => {

@@ -66,6 +66,20 @@ export function modelSettings(role: "subject" | "attacker"): ModelSettings {
   return { provider, model, baseUrl, apiKey };
 }
 
+/** LLM_MAX_WAIT_MINUTES: how long one request may wait out rate limits. Unset leaves the adapter's default. */
+function patienceMs(): number | undefined {
+  const raw = env("LLM_MAX_WAIT_MINUTES");
+  if (raw === undefined) return undefined;
+  const minutes = Number(raw);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    throw new Error("LLM_MAX_WAIT_MINUTES must be a number of minutes, 0 or more.");
+  }
+  return minutes * 60_000;
+}
+
+/** Waits shorter than this are routine and not worth a line of output. */
+const QUIET_WAIT_MS = 30_000;
+
 export function createModel(role: "subject" | "attacker"): ChatModel {
   const settings = modelSettings(role);
   if (settings.baseUrl === undefined) return new AnthropicModel(settings.model);
@@ -74,5 +88,11 @@ export function createModel(role: "subject" | "attacker"): ChatModel {
     baseUrl: settings.baseUrl,
     model: settings.model,
     apiKey: settings.apiKey,
+    patienceMs: patienceMs(),
+    onWait: (ms) => {
+      if (ms < QUIET_WAIT_MS) return;
+      const time = new Date().toTimeString().slice(0, 5);
+      console.error(`  [${time}] ${settings.provider} ${settings.model} is rate-limited; waiting ${Math.ceil(ms / 60_000)} min`);
+    },
   });
 }

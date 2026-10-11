@@ -4,6 +4,8 @@
 
 PayPal's Agent Toolkit lets an AI agent issue refunds. Crashtest sends dishonest "customers" at such an agent and measures two separate things: what the agent **tried** to give away, and what **actually** left the account. The second number comes from the payment system's own records, never from what the agent says it did.
 
+**Live demo:** [crashtest-7wl9.onrender.com](https://crashtest-7wl9.onrender.com). No setup or keys. It runs the built-in agents on a test payment system and replays recorded runs of real AI models. It is on a free host, so the first load after a quiet spell can take up to a minute.
+
 ## What it does
 
 1. For each scenario, it takes fresh test payments.
@@ -115,6 +117,12 @@ Built and covered by automated tests, all offline:
 - The model-backed agent, the adaptive attacker and both AI adapters, against scripted stand-ins.
 - The Agent Toolkit agent: the real toolkit is loaded offline to check its tool list and that it resolves to the sandbox; its refund path is tested against a stand-in.
 - Recording, replay, and the dashboard server including hosted mode, over real local HTTP requests.
+- Waiting out a provider's rate limits, including a used-up daily allowance, and retrying a dropped connection.
+
+Checked live:
+
+- Three free models on Groq, through full runs on the built-in test rail (see [RESULTS.md](RESULTS.md)).
+- The hosted copy at the link above: it loads, refuses anything that needs a key, runs the built-in agents and replays the recorded runs.
 
 Not yet run against the live services, so not yet proven:
 

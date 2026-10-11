@@ -72,7 +72,7 @@ Crashtest works with any AI service that offers tool calling. These cost nothing
 
 | `LLM_PROVIDER` | Where to get a key | Notes |
 |---|---|---|
-| `groq` | [console.groq.com](https://console.groq.com) | Recommended. No card needed. Fast, with per-minute limits; Crashtest waits and retries when it hits them. |
+| `groq` | [console.groq.com](https://console.groq.com) | Recommended. No card needed. Fast, with per-minute and per-day limits; Crashtest waits and retries when it hits them. |
 | `openrouter` | [openrouter.ai](https://openrouter.ai) | Uses its free-model router. Which model answers can change from run to run. |
 | `gemini` | [aistudio.google.com](https://aistudio.google.com) | Google's free tier. Daily limits vary by account. |
 | `ollama` | [ollama.com](https://ollama.com) | Runs a model on your own computer. No key, no limits, but needs a capable machine. |
@@ -117,11 +117,14 @@ npm run crashtest -- --subject toolkit --profile sandbox
 
 Add `--profile guarded` to either earlier command to see how enforcing the policy in code changes the result, or `--profile sandbox` to move the money on the PayPal sandbox. In the sandbox profile the policy is always enforced, so only refunds the policy owes are ever sent to PayPal. The dashboard offers the same choices in its menus once the keys are in `.env`; restart it after editing that file.
 
+Free tiers also have a daily allowance for each model. On Groq in October 2026 it was 200,000 tokens and 1,000 requests a day per model, which was enough for one to three runs of all 22 scenarios at 3 trials, depending on the model. When it runs out, Crashtest does not fail: it prints a line saying it is waiting and carries on as the allowance refills, which can stretch a run from minutes to hours. Run one job per model at a time; two jobs on the same model share one allowance.
+
 Optional `.env` lines:
 
 - `LLM_MODEL` picks a different model from the same provider.
 - `CRASHTEST_SUBJECT_MODEL` and `CRASHTEST_ATTACKER_MODEL` set the agent's and the attacker's models separately.
 - `LLM_PROVIDER=custom` with `LLM_BASE_URL` and `LLM_MODEL` points at any other OpenAI-format service.
+- `LLM_MAX_WAIT_MINUTES` sets how long one request may wait for a rate limit to clear before the scenario is recorded as an error. The default is 60.
 - `LLM_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` uses Claude. That one is paid.
 
 ## Saving a run for others to watch
@@ -141,6 +144,8 @@ A hosted copy lets anyone open the dashboard with no setup. It runs only the bui
 3. Pick this repository. Render reads `render.yaml` and proposes one free web service called `crashtest`.
 4. Click **Apply**. The first build takes a few minutes.
 5. Open the address Render gives you.
+
+The copy for this repository is at [crashtest-7wl9.onrender.com](https://crashtest-7wl9.onrender.com).
 
 Do not add any keys to the hosted service. The free plan sleeps when idle, so the first visit after a pause takes up to a minute to load.
 
