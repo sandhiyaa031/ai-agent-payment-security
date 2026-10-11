@@ -2,7 +2,7 @@
 
 Deadline: **12 November 2026, 12:00 pm Pacific**. Target: submit by **10 November**.
 
-**Current phase: 4, live verification.** It is blocked on keys only the repository owner can create.
+**Current phase: 5 and 6 in parallel.** Phase 4 is half done: the AI model is verified live, and the PayPal sandbox is blocked on an account setting (see phase 4). Work that does not need PayPal is going ahead.
 
 How to read this:
 
@@ -16,8 +16,8 @@ How to read this:
 | 1. Core engine | Done (offline tests) |
 | 2. Dashboard | Done (offline tests and a manual browser check) |
 | 3. Real agents | Built (offline tests only); not proven live |
-| 4. Live verification | **In progress, blocked on keys** |
-| 5. More attacks and evidence | Not started |
+| 4. Live verification | AI model verified; PayPal sandbox blocked on card-payment setting |
+| 5. More attacks and evidence | Mostly done; more trials and two runs outstanding |
 | 6. Hosted demo | Built locally; not deployed |
 | 7. Submission | Not started |
 
@@ -83,17 +83,18 @@ How to read this:
 **Blocked on:** the first two items.
 
 - [ ] **(you)** Create the PayPal sandbox app and a test card, and fill in `.env`
-- [ ] **(you)** Create a free Groq key and add it to `.env`
+- [x] **(you)** Create a free Groq key and add it to `.env`
+- [ ] **(you)** Sandbox app with card payments enabled: the current app fails with `PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING`; a US sandbox business account and a new app are the suggested fix
 - [ ] `npm run paypal:check` passes: payment taken, refund made, repeated request returns the same refund, refund read back
 - [ ] Record what status PayPal gives a fresh sandbox refund (`COMPLETED` or `PENDING`) and adjust if needed
-- [ ] `npm run llm:check` passes: the model replies and calls a tool
-- [ ] Full run, `baseline`, AI agent, scripted attacker
-- [ ] Full run, `guarded`, AI agent, scripted attacker
+- [x] `npm run llm:check` passes: the model replies and calls a tool (three Groq models checked)
+- [x] Full run, `baseline`, AI agent, scripted attacker (three models, recorded)
+- [x] Full run, `guarded`, AI agent, scripted attacker (one model, recorded)
 - [ ] Full run, `baseline`, AI agent, adaptive attacker
 - [ ] Full run, `sandbox`, AI agent: only owed refunds appear in the PayPal sandbox dashboard
 - [ ] Full run, `sandbox`, Agent Toolkit agent
 - [ ] Free-tier rate limits survive a full run without a scenario error
-- [ ] First real results recorded into `recordings/`
+- [x] First real results recorded into `recordings/` (test rail only)
 
 ## Phase 5: More attacks and evidence
 
@@ -109,10 +110,12 @@ In priority order:
 - [x] More prompt-injection and social-engineering scenarios (`forged-record`, `late-return`, `sob-story`, `price-adjustment`)
 - [x] More honest-customer scenarios, including a rude one who is owed, an edge-of-window return, and two who are owed nothing
 - [x] Repeat runs: `--repeat N`, reporting per-scenario trial counts (command line and dashboard)
-- [ ] Compare at least three model or configuration combinations
-- [ ] Leaderboard in the dashboard showing profile, attempts, losses, under-refunds, sample count and settings side by side
+- [x] Compare at least three model or configuration combinations (three models in `baseline`, one also in `guarded`; 3 trials each, see RESULTS.md)
+- [x] Leaderboard in the dashboard: the saved-runs table shows profile, defenses, trials, attempts, losses and honest refunds side by side
 - [ ] Adaptive attacker results reported separately, as a stress test
-- [ ] Hardening guide: recommended toolkit permissions and limits, each tied to a measured result
+- [x] Hardening guide (HARDENING.md), each recommendation tied to a measured result
+- [ ] Raise trials from 3 to 10 per scenario (limited by the free model tier's daily quota)
+- [ ] Guarded runs for the other two models, and the hardened-prompt variant (queued)
 
 Deferred to a later version: invoice and subscription attacks. They need different tools and a scoring method that can be defended.
 
@@ -124,7 +127,8 @@ Deferred to a later version: invoice and subscription attacks. They need differe
 
 - [x] Hosted mode written and tested locally
 - [x] Render deployment file written (not yet deployed, so not yet proven)
-- [ ] **(you)** Create a free Render account and connect the repository
+- [x] **(you)** Create a free Render account and connect the repository
+- [ ] **(you)** Create the Blueprint service on Render
 - [ ] Deployed copy loads and replays the recorded real runs
 - [ ] Link added to the README
 

@@ -119,9 +119,9 @@ Built and covered by automated tests, all offline:
 Not yet run against the live services, so not yet proven:
 
 - Anything on the real PayPal sandbox. `npm run paypal:check` is the first thing to run once keys exist.
-- Any real AI model, including the Agent Toolkit agent end to end. `npm run llm:check` is the first thing to run once a key exists.
+- The Agent Toolkit agent end to end, which needs both a model and the PayPal sandbox.
 
-There are no results for real models yet. Every number in this README comes from the built-in rule-based agents on the test rail.
+First results for real models are in [RESULTS.md](RESULTS.md), with recommendations drawn from them in [HARDENING.md](HARDENING.md). They are from three free models on the built-in test rail, 3 trials per scenario, so they are first observations. The sample output above is from the built-in rule-based agent.
 
 ## Safety
 

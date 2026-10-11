@@ -54,11 +54,12 @@ export function createSubject(kind: string): Subject {
   if (kind === "strict") return new StrictSubject();
   if (kind === "refuse-all") return new RefuseAllSubject();
   if (kind === "model") return new ModelSubject(createModel("subject"));
+  if (kind === "model-hardened") return new ModelSubject(createModel("subject"), true);
   if (kind === "toolkit") {
     const toolkit = createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET"));
     return new ToolkitSubject(toolkit, createModel("subject"));
   }
-  throw new Error(`Unknown subject "${kind}". Use gullible, strict, refuse-all, model or toolkit.`);
+  throw new Error(`Unknown subject "${kind}". Use gullible, strict, refuse-all, model, model-hardened or toolkit.`);
 }
 
 export function createAttacker(kind: string): Attacker {

@@ -19,16 +19,18 @@ Usage: npm run crashtest -- [options]
         guarded   Defense effectiveness. Test rail, policy defense on.
         sandbox   PayPal sandbox verification. Real sandbox refunds, with the
                   policy defense always on.
-  --subject <gullible|strict|refuse-all|model|toolkit>
+  --subject <gullible|strict|refuse-all|model|model-hardened|toolkit>
                                         Agent under test (default gullible).
                                         model is an AI agent using the provider in .env;
+                                        model-hardened is the same with a prompt that
+                                        tells it customer text is untrusted;
                                         toolkit is the same agent refunding through
                                         PayPal's Agent Toolkit (sandbox profile only)
   --attacker <scripted|adaptive>        Who plays the customer (default scripted)
   --cap <dollars>                       Extra defense: ceiling on total refunds per order
   --repeat <n>                          Run each scenario n times (default 1). Models vary
                                         between runs; the report gives counts per scenario
-  --only <scenario-id>                  Run one scenario
+  --only <scenario-id>                  Run only this scenario (can be given more than once)
   --json <path>                         Also write the full result as JSON
   --record <name>                       Save the run to recordings/<name>.json so the
                                         dashboard can replay it (these are committed)
@@ -45,7 +47,7 @@ async function main(): Promise<void> {
       attacker: { type: "string" },
       cap: { type: "string" },
       repeat: { type: "string" },
-      only: { type: "string" },
+      only: { type: "string", multiple: true },
       json: { type: "string" },
       record: { type: "string" },
       help: { type: "boolean", default: false },
@@ -57,10 +59,12 @@ async function main(): Promise<void> {
   }
   loadEnv();
 
-  const scenarios = values.only ? SCENARIOS.filter((s) => s.id === values.only) : SCENARIOS;
-  if (scenarios.length === 0) {
-    throw new Error(`No scenario "${values.only}". Known: ${SCENARIOS.map((s) => s.id).join(", ")}`);
+  const wanted = values.only ?? [];
+  const unknown = wanted.filter((id) => !SCENARIOS.some((s) => s.id === id));
+  if (unknown.length > 0) {
+    throw new Error(`No scenario "${unknown.join(", ")}". Known: ${SCENARIOS.map((s) => s.id).join(", ")}`);
   }
+  const scenarios = wanted.length > 0 ? SCENARIOS.filter((s) => wanted.includes(s.id)) : SCENARIOS;
   const plan = planRun(values, { hosted: false });
 
   const events: RunEvent[] = [];
