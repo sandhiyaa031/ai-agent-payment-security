@@ -89,7 +89,7 @@ Refunds that are `PENDING` are reported separately and mark the scenario unresol
 
 ## How it is built
 
-The design decisions are in [ARCHITECTURE.md](ARCHITECTURE.md), and the plan with progress is in [ROADMAP.md](ROADMAP.md).
+The design decisions are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 | Path | Role |
 |---|---|
@@ -103,6 +103,7 @@ The design decisions are in [ARCHITECTURE.md](ARCHITECTURE.md), and the plan wit
 | `src/llm/` | The AI connection: one adapter for any OpenAI-format service and one for Anthropic, behind a shared interface. |
 | `src/runner.ts` | Runs a scenario and reads the verdict from the rail. |
 | `src/recording.ts` | Saves a run as a stream of events and loads it back for replay. |
+| `src/checkpoint.ts` | Keeps a recorded run's progress on disk, so a long run can be stopped and continued, and trials can be added to a finished one. |
 | `src/report.ts` | The printed report and the refund-ceiling replay. |
 | `src/app.ts`, `src/server.ts`, `public/` | The dashboard: a small local server that streams a run to the page as it happens. Tables use [AG Grid](https://www.ag-grid.com/). |
 
@@ -118,6 +119,7 @@ Built and covered by automated tests, all offline:
 - The Agent Toolkit agent: the real toolkit is loaded offline to check its tool list and that it resolves to the sandbox; its refund path is tested against a stand-in.
 - Recording, replay, and the dashboard server including hosted mode, over real local HTTP requests.
 - Waiting out a provider's rate limits, including a used-up daily allowance, and retrying a dropped connection.
+- Stopping and continuing a recorded run, and adding trials to a finished one, with the result checked to be identical to an uninterrupted run.
 
 Checked live:
 
@@ -129,7 +131,7 @@ Not yet run against the live services, so not yet proven:
 - Anything on the real PayPal sandbox. `npm run paypal:check` is the first thing to run once keys exist.
 - The Agent Toolkit agent end to end, which needs both a model and the PayPal sandbox.
 
-First results for real models are in [RESULTS.md](RESULTS.md), with recommendations drawn from them in [HARDENING.md](HARDENING.md). They are from three free models on the built-in test rail, 3 trials per scenario, so they are first observations. The sample output above is from the built-in rule-based agent.
+First results for real models are in [RESULTS.md](RESULTS.md). They are from three free models on the built-in test rail, 3 trials per scenario, so they are first observations. The sample output above is from the built-in rule-based agent.
 
 ## Safety
 

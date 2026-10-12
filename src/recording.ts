@@ -21,6 +21,14 @@ export const RECORDING_SCHEMA = 3;
  * It holds nothing from .env. No key, token or card detail is ever placed in
  * an event, so there is nothing to strip out afterwards.
  */
+/** One uninterrupted stretch of work on a run. A run that was stopped and continued, or had trials added later, has several. */
+export interface Sitting {
+  startedAt: string;
+  finishedAt: string;
+  /** Scenario runs finished in this sitting. */
+  scenarioRuns: number;
+}
+
 export interface Recording extends RunSettings {
   schema: number;
   runId: string;
@@ -28,6 +36,8 @@ export interface Recording extends RunSettings {
   finishedAt: string;
   savedAt: string;
   harnessVersion: string;
+  /** Present on runs recorded from the command line. More than one entry means the trials were not all run in one go. */
+  sittings?: Sitting[];
   metrics: Metrics;
   events: RunEvent[];
 }
@@ -69,22 +79,35 @@ export function doneEvent(run: RunResult): { event: "done"; data: DoneData } {
   return { event: "done", data: { ...rest, byScenario: scenarioStats(run.scenarios), caps: capAnalysis(run, REPLAY_CAPS) } };
 }
 
-export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date, harnessVersion: string): Recording {
+export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date, harnessVersion: string, sittings?: Sitting[]): Recording {
   const { scenarios: _scenarios, ...rest } = run;
-  return { schema: RECORDING_SCHEMA, ...rest, savedAt: savedAt.toISOString(), harnessVersion, events };
+  return {
+    schema: RECORDING_SCHEMA,
+    ...rest,
+    savedAt: savedAt.toISOString(),
+    harnessVersion,
+    ...(sittings ? { sittings } : {}),
+    events,
+  };
+}
+
+/** The file name a recording is saved under: a-z, 0-9 and dashes only. */
+export function recordingSlug(name: string): string {
+  const safe = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!safe) throw new Error(`"${name}" is not a usable recording name.`);
+  return safe;
 }
 
 /** Saves a recording as <name>.json and returns the path. Names are reduced to a-z, 0-9 and dashes. */
 export function saveRecording(dir: string, name: string, recording: Recording): string {
-  const safe = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!safe) throw new Error(`"${name}" is not a usable recording name.`);
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${safe}.json`);
+  const path = join(dir, `${recordingSlug(name)}.json`);
   writeFileSync(path, JSON.stringify(recording, null, 2));
   return path;
 }
 
-function read(path: string): Recording | undefined {
+/** Reads one recording file. Returns nothing for a missing, unreadable or other-version file. */
+export function readRecording(path: string): Recording | undefined {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<Recording>;
     const usable = parsed.schema === RECORDING_SCHEMA && Array.isArray(parsed.events) && parsed.metrics && parsed.runId;
@@ -107,7 +130,7 @@ function files(dirs: RecordingDir[]): { id: string; source: string; path: string
 export function listRecordings(dirs: RecordingDir[]): RecordingSummary[] {
   const summaries: RecordingSummary[] = [];
   for (const file of files(dirs)) {
-    const recording = read(file.path);
+    const recording = readRecording(file.path);
     if (!recording) continue;
     const { events: _events, ...rest } = recording;
     summaries.push({ id: file.id, source: file.source, ...rest });
@@ -118,5 +141,5 @@ export function listRecordings(dirs: RecordingDir[]): RecordingSummary[] {
 /** Looks a recording up by the id from the listing, so a request can never name an arbitrary path. */
 export function loadRecording(dirs: RecordingDir[], id: string): Recording | undefined {
   const match = files(dirs).find((file) => file.id === id);
-  return match ? read(match.path) : undefined;
+  return match ? readRecording(match.path) : undefined;
 }

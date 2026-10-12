@@ -1,13 +1,15 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { SCENARIOS } from "./attacks/scenarios";
+import { SCENARIO_SET_VERSION, SCENARIOS } from "./attacks/scenarios";
+import { openProgress, type Progress } from "./checkpoint";
 import { createAttacker, createRail, createSubject, harnessVersion, loadEnv } from "./config";
 import { usd } from "./money";
 import { planRun } from "./profiles";
-import { doneEvent, eventHooks, saveRecording, toRecording, type RunEvent } from "./recording";
+import { doneEvent, eventHooks, readRecording, recordingSlug, saveRecording, toRecording, type RunEvent } from "./recording";
 import { formatReport } from "./report";
 import { runAll } from "./runner";
+import { POLICY_VERSION } from "./store/policy";
 
 const HELP = `Crashtest: how much money can an AI support agent be talked out of?
 
@@ -33,7 +35,13 @@ Usage: npm run crashtest -- [options]
   --only <scenario-id>                  Run only this scenario (can be given more than once)
   --json <path>                         Also write the full result as JSON
   --record <name>                       Save the run to recordings/<name>.json so the
-                                        dashboard can replay it (these are committed)
+                                        dashboard can replay it (these are committed).
+                                        Progress is kept in runs/<name>.partial.json as it
+                                        goes; if the run is stopped, the same command
+                                        carries on from there
+  --extend                              With --record: keep the trials already in
+                                        recordings/<name>.json and run only the ones
+                                        --repeat adds
   --help
 
 model, toolkit and adaptive need an AI provider in .env (free ones work);
@@ -50,6 +58,7 @@ async function main(): Promise<void> {
       only: { type: "string", multiple: true },
       json: { type: "string" },
       record: { type: "string" },
+      extend: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   });
@@ -67,20 +76,64 @@ async function main(): Promise<void> {
   const scenarios = wanted.length > 0 ? SCENARIOS.filter((s) => wanted.includes(s.id)) : SCENARIOS;
   const plan = planRun(values, { hosted: false });
 
-  const events: RunEvent[] = [];
+  const subject = createSubject(plan.subject);
+  const attacker = createAttacker(plan.attacker);
+  const version = harnessVersion();
+
+  // A recorded run keeps its progress on disk, so being stopped costs nothing already finished.
+  let progress: Progress | undefined;
+  if (values.record) {
+    const slug = recordingSlug(values.record);
+    const partial = join("runs", `${slug}.partial.json`);
+    const finished = values.extend ? readRecording(join("recordings", `${slug}.json`)) : undefined;
+    if (values.extend && !finished && !existsSync(partial)) {
+      throw new Error(`--extend found no recordings/${slug}.json to add trials to.`);
+    }
+    progress = openProgress(
+      partial,
+      {
+        profile: plan.profile.id,
+        subject: subject.name,
+        attacker: attacker.name,
+        defense: plan.defense,
+        policyVersion: POLICY_VERSION,
+        scenarioSetVersion: SCENARIO_SET_VERSION,
+        harnessVersion: version,
+        scenarioIds: scenarios.map((scenario) => scenario.id),
+      },
+      finished,
+    );
+    const beyond = progress.results.filter((result) => result.trial > plan.repeats).length;
+    if (beyond > 0) {
+      throw new Error(`${slug} already has trials beyond --repeat ${plan.repeats}. Ask for at least as many trials as it holds.`);
+    }
+    if (progress.results.length > 0) {
+      console.error(`Continuing ${slug}: ${progress.results.length} of ${scenarios.length * plan.repeats} scenario runs are already done.`);
+    }
+  } else if (values.extend) {
+    throw new Error("--extend needs --record <name>.");
+  }
+  const earlier = progress?.results ?? [];
+
+  const events: RunEvent[] = progress?.events ?? [];
   const recorder = eventHooks((event) => events.push(event));
   const run = await runAll({
     profile: plan.profile.id,
     scenarios,
-    subject: createSubject(plan.subject),
-    attacker: createAttacker(plan.attacker),
-    rail: createRail(plan.profile.rail),
+    subject,
+    attacker,
+    rail: createRail(plan.profile.rail, {
+      orders: earlier.reduce((total, result) => total + result.orders.length, 0),
+      refunds: earlier.reduce((total, result) => total + result.orders.reduce((sum, order) => sum + order.refunds.length, 0), 0),
+    }),
     defense: plan.defense,
     repeats: plan.repeats,
+    resume: progress && { startedAt: progress.startedAt, results: earlier },
     hooks: {
       ...recorder,
       onScenario: (result) => {
         recorder.onScenario?.(result);
+        progress?.save();
         const lost = result.orders.reduce((total, order) => total + order.overRefundCents, 0);
         const verdict = result.error ? "ERROR" : lost > 0 ? `LOST ${usd(lost)}` : result.unresolved ? "unresolved" : "held";
         const trial = plan.repeats > 1 ? ` [${result.trial}/${plan.repeats}]` : "";
@@ -97,7 +150,8 @@ async function main(): Promise<void> {
     console.log(`\nFull result written to ${values.json}`);
   }
   if (values.record) {
-    const path = saveRecording("recordings", values.record, toRecording(run, events, new Date(), harnessVersion()));
+    const path = saveRecording("recordings", values.record, toRecording(run, events, new Date(), version, progress?.sittings()));
+    progress?.clear();
     console.log(`\nRecording saved to ${path}`);
   }
 }

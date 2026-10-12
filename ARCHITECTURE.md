@@ -154,6 +154,16 @@ Two runs are comparable only if profile, defenses, policy version and scenario-s
 
 Models do not answer the same way twice, so one run of a scenario is one observation. `--repeat N` runs every scenario N times, interleaved (all scenarios, then all again) so that an outage partway through does not fall on one scenario. Results are reported as counts of trials, for example "lost in 2 of 10", never as a bare verdict or a percentage of a small sample. The limit is 30 trials per run, and 3 on a hosted copy.
 
+### Stopping, continuing and adding trials
+
+A run on a free model tier can take hours, because the daily allowance refills slowly, so a recorded run must survive being stopped. A run started with `--record` writes its events to `runs/<name>.partial.json` after every finished scenario (`src/checkpoint.ts`). Running the same command again rebuilds the finished scenario runs from those events and carries on with the rest. `--extend` does the same starting from a finished recording, so trials can be added to it later.
+
+- Earlier scenario runs are kept exactly as recorded and never run again. That includes one that ended in an error: it stays an error.
+- A continued run is refused if the profile, agent label, attacker, defenses, policy version, scenario-set version, harness version or scenario list differ. Two configurations are never mixed into one result.
+- A stopped-and-continued run with a deterministic agent comes out identical to one that was never stopped. This is tested.
+- Each stretch of work is listed in the recording as a sitting, with its start, finish and number of scenario runs. Trials run on different days are therefore visible, which matters because a hosted model can change between days.
+- The test rail carries on numbering orders and refunds where the last sitting stopped, so ids stay unique within a run.
+
 Recordings never contain keys, tokens or card details: none of those are ever put into an event. PayPal's raw refund response is not stored either; only the refund id and status are kept.
 
 Replay reads one file and writes its events to the page. The replay code has no reference to a rail, a model or the toolkit.
@@ -185,7 +195,7 @@ If a model provider fails or declines, the scenario is recorded with an error or
 | Profiles | `src/profiles.ts` |
 | Scoring | `src/metrics.ts` |
 | Runner | `src/runner.ts` |
-| Report, recording | `src/report.ts`, `src/recording.ts` |
+| Report, recording, progress of a run | `src/report.ts`, `src/recording.ts`, `src/checkpoint.ts` |
 | Interfaces | `src/cli.ts`, `src/app.ts`, `src/server.ts`, `public/` |
 
 ## Locked decisions
@@ -242,7 +252,7 @@ All settings live in `.env`, which is never committed.
 
 - The ceiling is per order. An attacker can still spread requests across several orders.
 - Buyer-supplied evidence is not modelled; scenarios encode the truth in the store's records.
-- Nothing here has run against the real PayPal sandbox or a real model yet. See [ROADMAP.md](ROADMAP.md), phase 4.
+- Nothing here has run against the real PayPal sandbox yet. Real models have been run on the built-in test rail only; see [RESULTS.md](RESULTS.md).
 
 ## Change log
 
@@ -265,4 +275,11 @@ All settings live in `.env`, which is never committed.
 
 - Added: scenario set 2 (22 scenarios, up from 11): split, duplicate and invalid-reference refunds, forged records, policy-stretch and sympathy appeals, and four more honest customers.
 - Added: repeated trials, with per-scenario trial counts in the report, the dashboard and recordings (schema 3).
+- No locked decision changed.
+
+**2026-10-12, long runs on a free tier**
+
+- Added: a model request now waits out a provider's rate limit for up to an hour (`LLM_MAX_WAIT_MINUTES`) and retries a dropped connection. Before this, a used-up daily allowance turned into scenario errors after about nine minutes.
+- Added: recorded runs save their progress and can be continued, and finished recordings can have trials added (`--extend`). Recordings list their sittings. The recording schema is unchanged; `sittings` is an optional field.
+- Added: the hosted copy reports its version and commit, and no longer loads PayPal's toolkit.
 - No locked decision changed.

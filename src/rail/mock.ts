@@ -10,6 +10,8 @@ interface MockOrder {
 export interface MockRailOptions {
   /** Decides how each new refund settles. Tests use it to produce pending and failed refunds. */
   settle?: (refundNumber: number) => RefundStatus;
+  /** Orders and refunds already numbered by an earlier sitting of the same run, so ids stay unique across it. */
+  continueFrom?: { orders: number; refunds: number };
 }
 
 /** Refunds in these states hold or have moved money, so they use up the captured amount. */
@@ -21,10 +23,13 @@ export class MockRail implements PaymentRail {
   readonly external = false;
   private readonly orders = new Map<string, MockOrder>();
   private readonly byKey = new Map<string, RefundResult>();
-  private sequence = 0;
-  private refundCount = 0;
+  private sequence: number;
+  private refundCount: number;
 
-  constructor(private readonly options: MockRailOptions = {}) {}
+  constructor(private readonly options: MockRailOptions = {}) {
+    this.sequence = options.continueFrom?.orders ?? 0;
+    this.refundCount = options.continueFrom?.refunds ?? 0;
+  }
 
   async charge(input: { amountCents: Cents; description: string; reference: string }): Promise<Charge> {
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {

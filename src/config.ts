@@ -34,9 +34,12 @@ function required(name: string): string {
   return value;
 }
 
-/** The rail is chosen by the evaluation profile (see profiles.ts), never directly by a user setting. */
-export function createRail(kind: "mock" | "paypal"): PaymentRail {
-  if (kind === "mock") return new MockRail();
+/**
+ * The rail is chosen by the evaluation profile (see profiles.ts), never directly by a user setting.
+ * `continueFrom` is for a run being picked up again: the test rail carries on numbering where it stopped.
+ */
+export function createRail(kind: "mock" | "paypal", continueFrom?: { orders: number; refunds: number }): PaymentRail {
+  if (kind === "mock") return new MockRail({ continueFrom });
   return new PayPalRail({
     clientId: required("PAYPAL_CLIENT_ID"),
     clientSecret: required("PAYPAL_CLIENT_SECRET"),

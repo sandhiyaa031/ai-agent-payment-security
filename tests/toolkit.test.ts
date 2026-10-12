@@ -191,5 +191,6 @@ describe("real PayPal Agent Toolkit", () => {
     expect(loaded(`config.createSubject("gullible");`)).toBe(0);
     // The same probe does see the toolkit once it is asked for, so a zero above means something.
     expect(loaded(`require("./src/subject/toolkit.ts").createPayPalToolkit("dummy-id", "dummy-secret");`)).toBeGreaterThan(0);
-  });
+    // Three fresh Node processes: slow when the machine is busy, so the default five seconds is not enough.
+  }, 60_000);
 });

@@ -135,6 +135,16 @@ npm run crashtest -- --subject model --attacker adaptive --record first-real-run
 
 This writes `recordings/first-real-run.json`. Recordings in that folder are part of the repository, and the dashboard lists them under **Saved runs** for anyone to replay, with no keys needed. Runs started from the dashboard are kept in `runs/`, which stays on your machine.
 
+A recorded run saves its progress as it goes. If it is stopped, by closing the window or shutting the computer down, run the same command again and it carries on from the last finished scenario instead of starting over. To start afresh instead, delete `runs/<name>.partial.json`.
+
+To add trials to a recording you already have, ask for the new total and add `--extend`:
+
+```bash
+npm run crashtest -- --subject model --repeat 10 --record first-real-run --extend
+```
+
+The settings must match the recording exactly, or Crashtest refuses rather than mix two configurations. The recording notes each sitting, so trials run on different days are visible.
+
 ## Stage 4: host a public copy, for free
 
 A hosted copy lets anyone open the dashboard with no setup. It runs only the built-in agents on the pretend payment system and replays the recordings in `recordings/`. It holds no keys, so it cannot spend anything or reach your PayPal sandbox.

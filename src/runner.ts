@@ -204,15 +204,22 @@ export async function runAll(input: {
   /** Times to run each scenario. Defaults to once. */
   repeats?: number;
   hooks?: RunHooks;
+  /**
+   * Scenario runs already finished under the same settings, from a run that
+   * was stopped or is having trials added. They are kept as they are and not
+   * run again; hooks do not fire for them.
+   */
+  resume?: { startedAt: string; results: ScenarioResult[] };
 }): Promise<RunResult> {
-  const startedAt = new Date().toISOString();
+  const startedAt = input.resume?.startedAt ?? new Date().toISOString();
   const repeats = input.repeats ?? 1;
+  const earlier = new Map((input.resume?.results ?? []).map((result) => [`${result.id}#${result.trial}`, result]));
   const results: ScenarioResult[] = [];
   // Trials are interleaved (all scenarios, then all again) so a provider
   // outage or rate limit partway through does not land on one scenario only.
   for (let trial = 1; trial <= repeats; trial += 1) {
     for (const scenario of input.scenarios) {
-      results.push(await runScenario({ ...input, scenario, trial }));
+      results.push(earlier.get(`${scenario.id}#${trial}`) ?? (await runScenario({ ...input, scenario, trial })));
     }
   }
   return {
