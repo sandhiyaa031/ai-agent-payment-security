@@ -248,6 +248,11 @@ describe("the command line", () => {
     expect(recording.sittings!.map((sitting) => sitting.scenarioRuns)).toEqual([ALL_SCENARIOS.length, ALL_SCENARIOS.length]);
     expect(existsSync(join(dir, "runs", "demo-run.partial.json"))).toBe(false);
 
+    const again = cli(dir, "--repeat", "2", "--record", "Demo Run", "--extend");
+    expect(again.status).toBe(0);
+    expect(again.stdout).toContain("already has 2 trials of every scenario. Nothing to do.");
+    expect(JSON.parse(readFileSync(join(dir, "recordings", "demo-run.json"), "utf8"))).toEqual(recording);
+
     const mixed = cli(dir, "--profile", "guarded", "--repeat", "3", "--record", "Demo Run", "--extend");
     expect(mixed.status).toBe(1);
     expect(mixed.stderr).toContain("different settings (profile, defense), so trials cannot be added");

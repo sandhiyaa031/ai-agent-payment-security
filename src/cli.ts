@@ -107,8 +107,14 @@ async function main(): Promise<void> {
     if (beyond > 0) {
       throw new Error(`${slug} already has trials beyond --repeat ${plan.repeats}. Ask for at least as many trials as it holds.`);
     }
+    const wanted = scenarios.length * plan.repeats;
+    if (finished && !existsSync(partial) && progress.results.length === wanted) {
+      // Saving again would only change the run id and times of a recording that is already complete.
+      console.log(`recordings/${slug}.json already has ${plan.repeats} trials of every scenario. Nothing to do.`);
+      return;
+    }
     if (progress.results.length > 0) {
-      console.error(`Continuing ${slug}: ${progress.results.length} of ${scenarios.length * plan.repeats} scenario runs are already done.`);
+      console.error(`Continuing ${slug}: ${progress.results.length} of ${wanted} scenario runs are already done.`);
     }
   } else if (values.extend) {
     throw new Error("--extend needs --record <name>.");
