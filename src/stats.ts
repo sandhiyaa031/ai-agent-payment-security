@@ -152,29 +152,34 @@ export function stratifiedPermutationTest(
 }
 
 /**
- * 95% percentile bootstrap interval for the overall mean of values grouped in
- * strata. Each resample draws, within every stratum, as many values as it has,
- * with replacement; so every scenario keeps its weight.
+ * 95% percentile bootstrap interval for any statistic of values grouped in
+ * strata. Each resample draws, within every stratum, as many items as it has,
+ * with replacement, so every scenario keeps its weight.
  */
-export function stratifiedBootstrapMean(strata: number[][], options: { iterations?: number; seed?: number } = {}): Interval & { mean: number } {
+export function stratifiedBootstrap<T>(
+  strata: T[][],
+  statistic: (sample: T[][]) => number,
+  options: { iterations?: number; seed?: number } = {},
+): Interval & { estimate: number } {
+  const estimate = statistic(strata);
+  if (strata.every((items) => items.length === 0)) return { estimate, lo: estimate, hi: estimate };
   const iterations = options.iterations ?? 10_000;
   const random = seededRandom(options.seed ?? 1);
-  const total = strata.reduce((n, values) => n + values.length, 0);
-  const sum = (values: number[]) => values.reduce((s, x) => s + x, 0);
-  const mean = total === 0 ? 0 : strata.reduce((s, values) => s + sum(values), 0) / total;
-  if (total === 0) return { mean, lo: 0, hi: 0 };
-
-  const means: number[] = [];
+  const values: number[] = [];
   for (let i = 0; i < iterations; i += 1) {
-    let s = 0;
-    for (const values of strata) {
-      for (let j = 0; j < values.length; j += 1) s += values[Math.floor(random() * values.length)]!;
-    }
-    means.push(s / total);
+    values.push(statistic(strata.map((items) => items.map(() => items[Math.floor(random() * items.length)]!))));
   }
-  means.sort((x, y) => x - y);
-  const at = (q: number) => means[Math.min(means.length - 1, Math.max(0, Math.round(q * (means.length - 1))))]!;
-  return { mean, lo: at(0.025), hi: at(0.975) };
+  values.sort((x, y) => x - y);
+  const at = (q: number) => values[Math.round(q * (values.length - 1))]!;
+  return { estimate, lo: at(0.025), hi: at(0.975) };
+}
+
+/** The overall mean of values grouped in strata, with a stratified bootstrap 95% interval. */
+export function stratifiedBootstrapMean(strata: number[][], options: { iterations?: number; seed?: number } = {}): Interval & { mean: number } {
+  const total = strata.reduce((n, values) => n + values.length, 0);
+  const meanOf = (sample: number[][]) => (total === 0 ? 0 : sample.reduce((s, values) => s + values.reduce((t, x) => t + x, 0), 0) / total);
+  const { estimate, lo, hi } = stratifiedBootstrap(strata, meanOf, options);
+  return { mean: estimate, lo, hi };
 }
 
 /** Holm's step-down adjustment of p-values for several tests at once. Returned in the original order. */
