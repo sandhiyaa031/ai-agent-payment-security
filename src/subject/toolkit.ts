@@ -96,7 +96,7 @@ export class ToolkitSubject implements Subject {
     return {
       kind: "toolkit",
       promptVariant: "stock",
-      systemPromptSha256: sha256(promptTemplate(false)),
+      systemPromptSha256: sha256(promptTemplate("stock")),
       toolsSha256: sha256(JSON.stringify(this.tools)),
       ...(model ? { model } : {}),
     };

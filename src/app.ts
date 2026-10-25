@@ -105,6 +105,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
         { id: "refuse-all", label: "Refuse-all baseline", available: true },
         { id: "model", label: "AI agent", available: keys.model, needs: needsModel },
         { id: "model-hardened", label: "AI agent, hardened prompt", available: keys.model, needs: needsModel },
+        { id: "model-spotlight", label: "AI agent, spotlighting", available: keys.model, needs: needsModel },
         {
           id: "toolkit",
           label: "AI agent on PayPal Agent Toolkit",

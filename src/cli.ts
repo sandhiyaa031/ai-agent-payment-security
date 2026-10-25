@@ -22,9 +22,10 @@ Usage: npm run crashtest -- [options]
         guarded   Defense effectiveness. Test rail, policy defense on.
         sandbox   PayPal sandbox verification. Real sandbox refunds, with the
                   policy defense always on.
-  --subject <gullible|strict|refuse-all|model|model-hardened|toolkit>
+  --subject <gullible|strict|refuse-all|model|model-hardened|model-spotlight|toolkit>
                                         Agent under test (default gullible).
                                         model is an AI agent using the provider in .env;
+                                        model-spotlight marks customer text as data;
                                         model-hardened is the same with a prompt that
                                         tells it customer text is untrusted;
                                         toolkit is the same agent refunding through

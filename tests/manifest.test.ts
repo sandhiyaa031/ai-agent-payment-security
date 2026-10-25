@@ -129,8 +129,8 @@ describe("manifests", () => {
   it("fingerprint each prompt variant and the tools, so a changed prompt is a different configuration", () => {
     const { model } = meteredModel("m");
     const stock = new ModelSubject(model).manifest();
-    const hardened = new ModelSubject(model, true).manifest();
-    expect(stock).toMatchObject({ kind: "model", promptVariant: "stock", systemPromptSha256: sha256(promptTemplate(false)) });
+    const hardened = new ModelSubject(model, "hardened").manifest();
+    expect(stock).toMatchObject({ kind: "model", promptVariant: "stock", systemPromptSha256: sha256(promptTemplate("stock")) });
     expect(hardened.systemPromptSha256).not.toBe(stock.systemPromptSha256);
     expect(hardened.toolsSha256).toBe(stock.toolsSha256);
     expect(new ModelSubject(meteredModel("other").model).manifest().systemPromptSha256).toBe(stock.systemPromptSha256);

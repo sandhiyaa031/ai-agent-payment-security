@@ -89,7 +89,7 @@ describe("hardened prompt variant", () => {
     const stock = fakeModel([{ text: "ok" }]);
     const hardened = fakeModel([{ text: "ok" }]);
     const stockSubject = new ModelSubject(stock.model);
-    const hardenedSubject = new ModelSubject(hardened.model, true);
+    const hardenedSubject = new ModelSubject(hardened.model, "hardened");
     await stockSubject.startSession(session, tools).reply("hi");
     await hardenedSubject.startSession(session, tools).reply("hi");
 
