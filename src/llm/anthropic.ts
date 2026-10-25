@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { emptyUsage, type ModelManifest, type Usage } from "../manifest";
 import type { ChatModel, Conversation, ToolOutput, ToolSpec, Turn } from "./model";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5";
@@ -7,10 +8,21 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5";
 export class AnthropicModel implements ChatModel {
   readonly label: string;
   private readonly client: Anthropic;
+  private readonly totals: Usage = emptyUsage();
+  private readonly served = new Set<string>();
 
   constructor(private readonly model: string = DEFAULT_ANTHROPIC_MODEL, client?: Anthropic) {
     this.label = `anthropic ${model}`;
     this.client = client ?? new Anthropic();
+  }
+
+  usage(): Usage {
+    return { ...this.totals };
+  }
+
+  /** Temperature is left at the provider default here, and recorded as unpinned. */
+  manifest(): ModelManifest {
+    return { provider: "anthropic", model: this.model, served: [...this.served], fingerprints: [] };
   }
 
   start(system: string, tools: ToolSpec[]): Conversation {
@@ -25,6 +37,7 @@ export class AnthropicModel implements ChatModel {
     const send = async (): Promise<Turn> => {
       // No server-side fallback here on purpose: a silent switch to another
       // model would corrupt a per-model score. A refusal is reported as-is.
+      const sentAt = Date.now();
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 16000,
@@ -33,6 +46,12 @@ export class AnthropicModel implements ChatModel {
         output_config: { effort: "medium" },
         messages,
       });
+      this.totals.requests += 1;
+      this.totals.promptTokens += response.usage?.input_tokens ?? 0;
+      this.totals.completionTokens += response.usage?.output_tokens ?? 0;
+      this.totals.cachedTokens += response.usage?.cache_read_input_tokens ?? 0;
+      this.totals.latencyMs += Date.now() - sentAt;
+      if (response.model) this.served.add(response.model);
       messages.push({ role: "assistant", content: response.content });
 
       const text = response.content

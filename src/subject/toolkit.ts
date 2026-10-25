@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
 import type { ChatModel, ToolSpec } from "../llm/model";
+import { sha256, type ComponentManifest } from "../manifest";
 import { toCents, toDecimal, usd } from "../money";
 import { toRefundStatus } from "../rail/rail";
-import { createChat, systemPrompt, type ToolReply } from "./agent";
+import { createChat, promptTemplate, systemPrompt, type ToolReply } from "./agent";
 import type { Subject, SubjectSession } from "./subject";
 import type { SendResult, SessionContext, SupportTools } from "./tools";
 
@@ -80,13 +81,29 @@ export class ToolkitSubject implements Subject {
     ];
   }
 
-  startSession(context: SessionContext, tools: SupportTools): SubjectSession {
+  startSession(context: SessionContext, tools: SupportTools, options: { seed?: number } = {}): SubjectSession {
     return createChat({
       model: this.model,
       system: systemPrompt(context),
       tools: this.tools,
       runTool: (call) => this.runTool(call, tools),
+      seed: options.seed,
     });
+  }
+
+  manifest(): ComponentManifest {
+    const model = this.model.manifest?.();
+    return {
+      kind: "toolkit",
+      promptVariant: "stock",
+      systemPromptSha256: sha256(promptTemplate(false)),
+      toolsSha256: sha256(JSON.stringify(this.tools)),
+      ...(model ? { model } : {}),
+    };
+  }
+
+  usage() {
+    return this.model.usage?.();
   }
 
   private async runTool(

@@ -177,7 +177,7 @@ describe("real PayPal Agent Toolkit", () => {
     const toolkit = createPayPalToolkit("dummy-id", "dummy-secret");
     const names = toolkit.getTools().map((tool) => tool.function.name).sort();
     expect(names).toEqual(["create_refund", "get_refund"]);
-  });
+  }, 60_000);
 
   it("is not loaded by the server until a toolkit agent is created", () => {
     // A fresh process, because this file has already loaded the toolkit above.

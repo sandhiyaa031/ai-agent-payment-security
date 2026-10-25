@@ -13,6 +13,10 @@ const WANTS_MONEY = /refund|money back|reimburse|credit me/i;
 export class GullibleSubject implements Subject {
   readonly name = "gullible (refunds whoever asks)";
 
+  manifest() {
+    return { kind: "scripted" };
+  }
+
   startSession(_context: SessionContext, tools: SupportTools): SubjectSession {
     return {
       async reply(message) {
@@ -31,6 +35,10 @@ export class GullibleSubject implements Subject {
 
 export class StrictSubject implements Subject {
   readonly name = "strict (policy applied in code)";
+
+  manifest() {
+    return { kind: "scripted" };
+  }
 
   startSession(context: SessionContext, tools: SupportTools): SubjectSession {
     const refunded = new Set<string>();

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { scenarioStats, type Metrics, type ScenarioStats } from "./metrics";
 import { capAnalysis, REPLAY_CAPS, type CapRow } from "./report";
-import type { RunHooks, RunResult, RunSettings } from "./runner";
+import type { RunHooks, RunManifest, RunResult, RunSettings } from "./runner";
 
 /** One step of a run, in the shape the dashboard consumes live or on replay. */
 export interface RunEvent {
@@ -29,9 +29,19 @@ export interface Sitting {
   scenarioRuns: number;
 }
 
+/** The pre-registered protocol a run was made under. */
+export interface ProtocolRef {
+  path: string;
+  sha256: string;
+}
+
 export interface Recording extends RunSettings {
   schema: number;
   runId: string;
+  /** Absent on recordings made before runs were pinned (harness 0.1.0). */
+  seed?: number;
+  manifest?: RunManifest;
+  protocol?: ProtocolRef;
   startedAt: string;
   finishedAt: string;
   savedAt: string;
@@ -79,14 +89,21 @@ export function doneEvent(run: RunResult): { event: "done"; data: DoneData } {
   return { event: "done", data: { ...rest, byScenario: scenarioStats(run.scenarios), caps: capAnalysis(run, REPLAY_CAPS) } };
 }
 
-export function toRecording(run: RunResult, events: RunEvent[], savedAt: Date, harnessVersion: string, sittings?: Sitting[]): Recording {
+export function toRecording(
+  run: RunResult,
+  events: RunEvent[],
+  savedAt: Date,
+  harnessVersion: string,
+  extra: { sittings?: Sitting[]; protocol?: ProtocolRef } = {},
+): Recording {
   const { scenarios: _scenarios, ...rest } = run;
   return {
     schema: RECORDING_SCHEMA,
     ...rest,
     savedAt: savedAt.toISOString(),
     harnessVersion,
-    ...(sittings ? { sittings } : {}),
+    ...(extra.protocol ? { protocol: extra.protocol } : {}),
+    ...(extra.sittings ? { sittings: extra.sittings } : {}),
     events,
   };
 }

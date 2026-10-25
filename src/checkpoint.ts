@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Turn } from "./attacks/attacker";
+import { fixedPart, newRunSeed, type ComponentManifest } from "./manifest";
 import { RECORDING_SCHEMA, type Recording, type RunEvent, type Sitting } from "./recording";
 import type { RunSettings, ScenarioResult } from "./runner";
 import type { ToolCallRecord } from "./subject/tools";
@@ -13,12 +14,16 @@ import type { ToolCallRecord } from "./subject/tools";
 export interface RunIdentity extends Pick<RunSettings, "profile" | "subject" | "attacker" | "defense" | "policyVersion" | "scenarioSetVersion"> {
   harnessVersion: string;
   scenarioIds: string[];
+  /** The fixed parts of the agent's and attacker's manifests: prompts, tools, model and temperature. */
+  agentSpec?: ComponentManifest;
+  attackerSpec?: ComponentManifest;
 }
 
 /** A run in progress on disk: the same events a recording holds, without a final summary. */
 interface ProgressFile {
   schema: number;
   identity: RunIdentity;
+  seed: number;
   startedAt: string;
   sittings: Sitting[];
   events: RunEvent[];
@@ -72,7 +77,15 @@ export function identityOf(recording: Recording): RunIdentity {
     scenarioSetVersion: recording.scenarioSetVersion,
     harnessVersion: recording.harnessVersion,
     scenarioIds: firstTrial.map((entry) => (entry.data as { id: string }).id),
+    ...specs(recording.manifest?.agent, recording.manifest?.attacker),
   };
+}
+
+/** The identity fields for an agent and attacker manifest, left out entirely when there is none. */
+export function specs(agent: ComponentManifest | undefined, attacker: ComponentManifest | undefined): Pick<RunIdentity, "agentSpec" | "attackerSpec"> {
+  const agentSpec = fixedPart(agent);
+  const attackerSpec = fixedPart(attacker);
+  return { ...(agentSpec ? { agentSpec } : {}), ...(attackerSpec ? { attackerSpec } : {}) };
 }
 
 function differences(a: RunIdentity, b: RunIdentity): string[] {
@@ -81,6 +94,8 @@ function differences(a: RunIdentity, b: RunIdentity): string[] {
 }
 
 export interface Progress {
+  /** The run's seed: the one it started with, when it is being continued. */
+  seed: number;
   /** When the run first started, across every sitting. */
   startedAt: string;
   /** Events of the scenario runs already finished. New events are appended to this array. */
@@ -104,8 +119,15 @@ export interface Progress {
  * Settings that differ are refused: results from two configurations must
  * never be mixed into one run.
  */
-export function openProgress(path: string, identity: RunIdentity, startFrom?: Recording, now: () => Date = () => new Date()): Progress {
+export function openProgress(
+  path: string,
+  identity: RunIdentity,
+  options: { startFrom?: Recording; seed?: number; now?: () => Date } = {},
+): Progress {
+  const { startFrom } = options;
+  const now = options.now ?? (() => new Date());
   let startedAt = now().toISOString();
+  let seed: number | undefined;
   let earlierSittings: Sitting[] = [];
   let earlierEvents: RunEvent[] = [];
 
@@ -121,6 +143,7 @@ export function openProgress(path: string, identity: RunIdentity, startFrom?: Re
       );
     }
     startedAt = file.startedAt;
+    seed = file.seed;
     earlierSittings = file.sittings ?? [];
     earlierEvents = file.events;
   } else if (startFrom) {
@@ -129,17 +152,23 @@ export function openProgress(path: string, identity: RunIdentity, startFrom?: Re
       throw new Error(`The saved recording was made with different settings (${changed.join(", ")}), so trials cannot be added to it.`);
     }
     startedAt = startFrom.startedAt;
+    seed = startFrom.seed;
     earlierEvents = startFrom.events;
     earlierSittings = startFrom.sittings ?? [
       { startedAt: startFrom.startedAt, finishedAt: startFrom.finishedAt, scenarioRuns: resultsFromEvents(startFrom.events).results.length },
     ];
   }
 
+  if (seed !== undefined && options.seed !== undefined && seed !== options.seed) {
+    throw new Error(`This run was started with seed ${seed}; it cannot be continued with seed ${options.seed}.`);
+  }
+  const runSeed = seed ?? options.seed ?? newRunSeed();
   const { results, events } = resultsFromEvents(earlierEvents);
   const sitting: Sitting = { startedAt: now().toISOString(), finishedAt: now().toISOString(), scenarioRuns: 0 };
   const sittings = () => (sitting.scenarioRuns > 0 ? [...earlierSittings, sitting] : earlierSittings);
 
   return {
+    seed: runSeed,
     startedAt,
     events,
     results,
@@ -147,7 +176,7 @@ export function openProgress(path: string, identity: RunIdentity, startFrom?: Re
     save() {
       sitting.scenarioRuns += 1;
       sitting.finishedAt = now().toISOString();
-      const file: ProgressFile = { schema: RECORDING_SCHEMA, identity, startedAt, sittings: sittings(), events };
+      const file: ProgressFile = { schema: RECORDING_SCHEMA, identity, seed: runSeed, startedAt, sittings: sittings(), events };
       mkdirSync(dirname(path), { recursive: true });
       // Written beside the real file and then renamed, so being stopped mid-write cannot leave half a file.
       writeFileSync(`${path}.tmp`, JSON.stringify(file));

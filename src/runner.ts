@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Attacker, Turn } from "./attacks/attacker";
 import { SCENARIO_SET_VERSION, type OrderSpec, type Scenario } from "./attacks/scenarios";
 import { computeMetrics, isUnresolved, scoreOrder, type Metrics, type OrderScore } from "./metrics";
+import { conversationSeed, newRunSeed, usageSince, type ComponentManifest, type Usage } from "./manifest";
 import type { Cents } from "./money";
 import type { ProfileId } from "./profiles";
 import type { PaymentRail, RefundRecord } from "./rail/rail";
@@ -33,6 +34,8 @@ export interface ScenarioResult {
   unresolved: boolean;
   /** Set when the scenario stopped early, for example on a model or provider failure. */
   error?: string;
+  /** Tokens and model time this conversation used, for parts backed by a model that reports them. */
+  usage?: { agent?: Usage; attacker?: Usage };
 }
 
 /** The settings a result was produced under. Two runs are comparable only if these match. */
@@ -48,8 +51,17 @@ export interface RunSettings {
   scenarioSetVersion: string;
 }
 
+/** Exactly what ran: see manifest.ts. */
+export interface RunManifest {
+  agent?: ComponentManifest;
+  attacker?: ComponentManifest;
+}
+
 export interface RunResult extends RunSettings {
   runId: string;
+  /** Every conversation's seed is derived from this one. */
+  seed: number;
+  manifest: RunManifest;
   startedAt: string;
   finishedAt: string;
   scenarios: ScenarioResult[];
@@ -97,11 +109,17 @@ export async function runScenario(input: {
   rail: PaymentRail;
   defense: Defense;
   trial?: number;
+  /** The run's seed. Each conversation gets its own, derived from this, the scenario and the trial. */
+  seed?: number;
   hooks?: RunHooks;
 }): Promise<ScenarioResult> {
   const { scenario, subject, attacker, rail, defense, hooks } = input;
   const trial = input.trial ?? 1;
+  const seedFor = (role: string) => (input.seed === undefined ? undefined : conversationSeed(input.seed, scenario.id, trial, role));
   hooks?.onScenarioStart?.(scenario, trial);
+  // Runs are one conversation at a time, so the change in each model's totals belongs to this conversation.
+  const agentBefore = subject.usage?.();
+  const attackerBefore = attacker.usage?.();
 
   const orders: StoreOrder[] = [];
   const entitled = new Map<string, Cents>();
@@ -135,7 +153,7 @@ export async function runScenario(input: {
       log: toolCalls,
       onCall: (call) => hooks?.onToolCall?.(scenario.id, call),
     });
-    const chat = subject.startSession(session, tools);
+    const chat = subject.startSession(session, tools, { seed: seedFor("agent") });
     const brief = {
       goal: fill(scenario.goal, ids),
       script: scenario.script.map((line) => fill(line, ids)),
@@ -143,7 +161,7 @@ export async function runScenario(input: {
     };
 
     for (;;) {
-      const customer = await attacker.next(brief, transcript);
+      const customer = await attacker.next(brief, transcript, { seed: seedFor(`attacker-${transcript.length}`) });
       if (customer === null) break;
       hooks?.onCustomerMessage?.(scenario.id, customer);
       const agent = await chat.reply(customer);
@@ -176,6 +194,13 @@ export async function runScenario(input: {
     });
   }
 
+  const agentAfter = subject.usage?.();
+  const attackerAfter = attacker.usage?.();
+  const usage = {
+    ...(agentBefore && agentAfter ? { agent: usageSince(agentBefore, agentAfter) } : {}),
+    ...(attackerBefore && attackerAfter ? { attacker: usageSince(attackerBefore, attackerAfter) } : {}),
+  };
+
   const result: ScenarioResult = {
     id: scenario.id,
     version: scenario.version,
@@ -188,6 +213,7 @@ export async function runScenario(input: {
     toolCalls,
     unresolved: false,
     ...(error === undefined ? {} : { error }),
+    ...(usage.agent || usage.attacker ? { usage } : {}),
   };
   result.unresolved = isUnresolved(result);
   hooks?.onScenario?.(result);
@@ -210,8 +236,11 @@ export async function runAll(input: {
    * run again; hooks do not fire for them.
    */
   resume?: { startedAt: string; results: ScenarioResult[] };
+  /** The run's seed. A new one is chosen when absent; either way it is recorded. */
+  seed?: number;
 }): Promise<RunResult> {
   const startedAt = input.resume?.startedAt ?? new Date().toISOString();
+  const seed = input.seed ?? newRunSeed();
   const repeats = input.repeats ?? 1;
   const earlier = new Map((input.resume?.results ?? []).map((result) => [`${result.id}#${result.trial}`, result]));
   const results: ScenarioResult[] = [];
@@ -219,11 +248,15 @@ export async function runAll(input: {
   // outage or rate limit partway through does not land on one scenario only.
   for (let trial = 1; trial <= repeats; trial += 1) {
     for (const scenario of input.scenarios) {
-      results.push(earlier.get(`${scenario.id}#${trial}`) ?? (await runScenario({ ...input, scenario, trial })));
+      results.push(earlier.get(`${scenario.id}#${trial}`) ?? (await runScenario({ ...input, scenario, trial, seed })));
     }
   }
+  const agent = input.subject.manifest?.();
+  const attacker = input.attacker.manifest?.();
   return {
     runId: randomUUID(),
+    seed,
+    manifest: { ...(agent ? { agent } : {}), ...(attacker ? { attacker } : {}) },
     startedAt,
     finishedAt: new Date().toISOString(),
     profile: input.profile,

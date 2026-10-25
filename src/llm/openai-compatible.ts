@@ -1,3 +1,4 @@
+import { emptyUsage, type ModelManifest, type Usage } from "../manifest";
 import type { ChatModel, Conversation, ToolCall, ToolOutput, ToolSpec, Turn } from "./model";
 
 export interface OpenAiCompatibleOptions {
@@ -7,6 +8,8 @@ export interface OpenAiCompatibleOptions {
   model: string;
   /** Omitted for local servers that need no key. */
   apiKey?: string;
+  /** Sent with every request when set, so the run does not depend on a provider default that can change. */
+  temperature?: number;
   /** The longest one request may spend waiting out rate limits in total. Defaults to an hour. */
   patienceMs?: number;
   /** Called before every wait, so a long pause is not mistaken for a hang. */
@@ -28,7 +31,14 @@ interface RawToolCall {
 }
 
 interface CompletionResponse {
+  model?: string;
+  system_fingerprint?: string;
   choices?: { finish_reason?: string; message?: { content?: string | null; tool_calls?: RawToolCall[] } }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
   error?: { message?: string };
 }
 
@@ -60,6 +70,9 @@ export class OpenAiCompatibleModel implements ChatModel {
   readonly label: string;
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly totals: Usage = emptyUsage();
+  private readonly served = new Set<string>();
+  private readonly fingerprints = new Set<string>();
 
   constructor(private readonly options: OpenAiCompatibleOptions) {
     this.label = `${options.provider} ${options.model}`;
@@ -67,7 +80,21 @@ export class OpenAiCompatibleModel implements ChatModel {
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  start(system: string, tools: ToolSpec[]): Conversation {
+  usage(): Usage {
+    return { ...this.totals };
+  }
+
+  manifest(): ModelManifest {
+    return {
+      provider: this.options.provider,
+      model: this.options.model,
+      ...(this.options.temperature === undefined ? {} : { temperature: this.options.temperature }),
+      served: [...this.served],
+      fingerprints: [...this.fingerprints],
+    };
+  }
+
+  start(system: string, tools: ToolSpec[], options: { seed?: number } = {}): Conversation {
     const messages: Message[] = [{ role: "system", content: system }];
     const toolParams = tools.map((tool) => ({
       type: "function" as const,
@@ -79,6 +106,8 @@ export class OpenAiCompatibleModel implements ChatModel {
         model: this.options.model,
         messages,
         ...(toolParams.length > 0 ? { tools: toolParams, tool_choice: "auto" } : {}),
+        ...(this.options.temperature === undefined ? {} : { temperature: this.options.temperature }),
+        ...(options.seed === undefined ? {} : { seed: options.seed }),
       });
       const choice = body.choices?.[0];
       const rawCalls = choice?.message?.tool_calls ?? [];
@@ -131,6 +160,7 @@ export class OpenAiCompatibleModel implements ChatModel {
     for (let attempt = 1; ; attempt += 1) {
       let response: Response;
       let text: string;
+      const sentAt = Date.now();
       try {
         response = await this.fetchImpl(url, { method: "POST", headers, body: JSON.stringify(payload) });
         text = await response.text();
@@ -150,7 +180,10 @@ export class OpenAiCompatibleModel implements ChatModel {
       } catch {
         // non-JSON error page; reported below by status
       }
-      if (response.ok) return body;
+      if (response.ok) {
+        this.count(body, Date.now() - sentAt);
+        return body;
+      }
 
       if (RETRY_STATUSES.has(response.status)) {
         const retryAfter = Number(response.headers.get("retry-after"));
@@ -169,6 +202,16 @@ export class OpenAiCompatibleModel implements ChatModel {
       const detail = withoutAccountId(body.error?.message ?? (text.slice(0, 200) || response.statusText));
       throw new Error(`${this.options.provider} request failed (${response.status}): ${detail}`);
     }
+  }
+
+  private count(body: CompletionResponse, latencyMs: number): void {
+    this.totals.requests += 1;
+    this.totals.promptTokens += body.usage?.prompt_tokens ?? 0;
+    this.totals.completionTokens += body.usage?.completion_tokens ?? 0;
+    this.totals.cachedTokens += body.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    this.totals.latencyMs += latencyMs;
+    if (body.model) this.served.add(body.model);
+    if (body.system_fingerprint) this.fingerprints.add(body.system_fingerprint);
   }
 
   private async pause(ms: number): Promise<void> {

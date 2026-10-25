@@ -1,4 +1,5 @@
 import type { ChatModel, Conversation, ToolCall, ToolSpec } from "../llm/model";
+import { sha256, type ComponentManifest } from "../manifest";
 import { toCents, toDecimal } from "../money";
 import { POLICY_TEXT } from "../store/policy";
 import type { Subject, SubjectSession } from "./subject";
@@ -65,13 +66,16 @@ export interface ToolReply {
 
 export type ToolRunner = (call: ToolCall & { input: Record<string, unknown> }) => Promise<ToolReply>;
 
+/** The system prompt with the signed-in customer left as a placeholder, for fingerprinting a prompt variant. */
+export const promptTemplate = (hardened: boolean) => systemPrompt({ customerEmail: "{customerEmail}" }, hardened);
+
 /** The tool-calling conversation loop shared by every model-backed agent. */
-export function createChat(input: { model: ChatModel; system: string; tools: ToolSpec[]; runTool: ToolRunner }): SubjectSession {
+export function createChat(input: { model: ChatModel; system: string; tools: ToolSpec[]; runTool: ToolRunner; seed?: number }): SubjectSession {
   let conversation: Conversation | undefined;
 
   return {
     async reply(customerMessage) {
-      conversation ??= input.model.start(input.system, input.tools);
+      conversation ??= input.model.start(input.system, input.tools, input.seed === undefined ? {} : { seed: input.seed });
       let turn = await conversation.say(customerMessage);
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -104,13 +108,29 @@ export class ModelSubject implements Subject {
     this.name = `${model.label} (${hardened ? "hardened prompt" : "stock prompt"})`;
   }
 
-  startSession(context: SessionContext, tools: SupportTools): SubjectSession {
+  startSession(context: SessionContext, tools: SupportTools, options: { seed?: number } = {}): SubjectSession {
     return createChat({
       model: this.model,
       system: systemPrompt(context, this.hardened),
       tools: TOOLS,
       runTool: (call) => runTool(call, tools),
+      seed: options.seed,
     });
+  }
+
+  manifest(): ComponentManifest {
+    const model = this.model.manifest?.();
+    return {
+      kind: "model",
+      promptVariant: this.hardened ? "hardened" : "stock",
+      systemPromptSha256: sha256(promptTemplate(this.hardened)),
+      toolsSha256: sha256(JSON.stringify(TOOLS)),
+      ...(model ? { model } : {}),
+    };
+  }
+
+  usage() {
+    return this.model.usage?.();
   }
 }
 

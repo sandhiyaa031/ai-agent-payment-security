@@ -77,6 +77,22 @@ function patienceMs(): number | undefined {
   return minutes * 60_000;
 }
 
+/**
+ * LLM_TEMPERATURE, pinned on every request. The default, 1, is what the
+ * supported free providers use when none is sent; sending it explicitly keeps
+ * a run from depending on a default that can change. A temperature near 0
+ * would make repeated trials near-copies of each other, not independent samples.
+ */
+export function temperature(): number {
+  const raw = env("LLM_TEMPERATURE");
+  if (raw === undefined) return 1;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 2) {
+    throw new Error("LLM_TEMPERATURE must be a number from 0 to 2.");
+  }
+  return value;
+}
+
 /** Waits shorter than this are routine and not worth a line of output. */
 const QUIET_WAIT_MS = 30_000;
 
@@ -88,6 +104,7 @@ export function createModel(role: "subject" | "attacker"): ChatModel {
     baseUrl: settings.baseUrl,
     model: settings.model,
     apiKey: settings.apiKey,
+    temperature: temperature(),
     patienceMs: patienceMs(),
     onWait: (ms) => {
       if (ms < QUIET_WAIT_MS) return;

@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { SCENARIO_SET_VERSION, SCENARIOS } from "./attacks/scenarios";
-import { openProgress, type Progress } from "./checkpoint";
+import { openProgress, specs, type Progress } from "./checkpoint";
+import { sha256 } from "./manifest";
 import { createAttacker, createRail, createSubject, harnessVersion, loadEnv } from "./config";
 import { usd } from "./money";
 import { planRun } from "./profiles";
-import { doneEvent, eventHooks, readRecording, recordingSlug, saveRecording, toRecording, type RunEvent } from "./recording";
+import { doneEvent, eventHooks, readRecording, recordingSlug, saveRecording, toRecording, type ProtocolRef, type RunEvent } from "./recording";
 import { formatReport } from "./report";
 import { runAll } from "./runner";
 import { POLICY_VERSION } from "./store/policy";
@@ -39,6 +40,10 @@ Usage: npm run crashtest -- [options]
                                         Progress is kept in runs/<name>.partial.json as it
                                         goes; if the run is stopped, the same command
                                         carries on from there
+  --seed <n>                            The run's seed; each conversation's seed is derived
+                                        from it (default: a new one, recorded either way)
+  --protocol <path>                     The pre-registered protocol this run follows; its
+                                        path and SHA-256 are recorded with the run
   --extend                              With --record: keep the trials already in
                                         recordings/<name>.json and run only the ones
                                         --repeat adds
@@ -59,6 +64,8 @@ async function main(): Promise<void> {
       json: { type: "string" },
       record: { type: "string" },
       extend: { type: "boolean", default: false },
+      seed: { type: "string" },
+      protocol: { type: "string" },
       help: { type: "boolean", default: false },
     },
   });
@@ -79,6 +86,18 @@ async function main(): Promise<void> {
   const subject = createSubject(plan.subject);
   const attacker = createAttacker(plan.attacker);
   const version = harnessVersion();
+  let requestedSeed: number | undefined;
+  if (values.seed !== undefined) {
+    requestedSeed = Number(values.seed);
+    if (!Number.isInteger(requestedSeed) || requestedSeed < 0 || requestedSeed > 0x7fffffff) {
+      throw new Error("--seed must be a whole number from 0 to 2147483647.");
+    }
+  }
+  let protocol: ProtocolRef | undefined;
+  if (values.protocol !== undefined) {
+    if (!existsSync(values.protocol)) throw new Error(`No protocol file at ${values.protocol}.`);
+    protocol = { path: values.protocol.replaceAll("\\", "/"), sha256: sha256(readFileSync(values.protocol, "utf8").replace(/\r\n/g, "\n")) };
+  }
 
   // A recorded run keeps its progress on disk, so being stopped costs nothing already finished.
   let progress: Progress | undefined;
@@ -100,8 +119,9 @@ async function main(): Promise<void> {
         scenarioSetVersion: SCENARIO_SET_VERSION,
         harnessVersion: version,
         scenarioIds: scenarios.map((scenario) => scenario.id),
+        ...specs(subject.manifest?.(), attacker.manifest?.()),
       },
-      finished,
+      { startFrom: finished, seed: requestedSeed },
     );
     const beyond = progress.results.filter((result) => result.trial > plan.repeats).length;
     if (beyond > 0) {
@@ -135,6 +155,7 @@ async function main(): Promise<void> {
     defense: plan.defense,
     repeats: plan.repeats,
     resume: progress && { startedAt: progress.startedAt, results: earlier },
+    seed: progress?.seed ?? requestedSeed,
     hooks: {
       ...recorder,
       onScenario: (result) => {
@@ -156,7 +177,7 @@ async function main(): Promise<void> {
     console.log(`\nFull result written to ${values.json}`);
   }
   if (values.record) {
-    const path = saveRecording("recordings", values.record, toRecording(run, events, new Date(), version, progress?.sittings()));
+    const path = saveRecording("recordings", values.record, toRecording(run, events, new Date(), version, { sittings: progress?.sittings(), protocol }));
     progress?.clear();
     console.log(`\nRecording saved to ${path}`);
   }

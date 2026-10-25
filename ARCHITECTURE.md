@@ -141,6 +141,9 @@ So a bug in the policy code cannot quietly become the definition of correct.
 A recording (`src/recording.ts`, schema 3) is the stream of events from a run plus the settings it ran under:
 
 - run id, start, finish and save times, harness version;
+- the run's seed (each conversation's seed is derived from it, the scenario and the trial) and, when given, the pre-registered protocol it follows, by path and SHA-256;
+- a manifest of the agent and the attacker: kind, prompt variant, SHA-256 of the system prompt and of the tool definitions, provider, model id asked for, pinned temperature, and the model ids and build fingerprints the provider reported serving;
+- per conversation, the tokens (prompt, completion, cached) and model time used by the agent and by the attacker;
 - profile, agent label (including provider and model), attacker label, rail, defenses, and trials per scenario;
 - policy version and scenario-set version; each scenario result carries its own version and trial number;
 - every customer and agent message;
@@ -235,6 +238,7 @@ All settings live in `.env`, which is never committed.
 | `PAYPAL_TEST_CARD_NUMBER`, `_EXPIRY`, `_CVV` | Sandbox test card used to take test payments |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | AI provider, key and optional model name |
 | `CRASHTEST_SUBJECT_MODEL`, `CRASHTEST_ATTACKER_MODEL` | Separate models for the agent and the attacker |
+| `LLM_TEMPERATURE` | Sampling temperature sent on every model request (default 1, the free providers' own default) |
 | `LLM_MAX_WAIT_MINUTES` | How long one model request may wait out rate limits before it counts as failed (default 60) |
 | `CRASHTEST_PUBLIC` | Set to `1` for hosted mode |
 | `HOST`, `PORT` | Dashboard address; local-only by default |

@@ -124,6 +124,7 @@ Optional `.env` lines:
 - `LLM_MODEL` picks a different model from the same provider.
 - `CRASHTEST_SUBJECT_MODEL` and `CRASHTEST_ATTACKER_MODEL` set the agent's and the attacker's models separately.
 - `LLM_PROVIDER=custom` with `LLM_BASE_URL` and `LLM_MODEL` points at any other OpenAI-format service.
+- `LLM_TEMPERATURE` sets the sampling temperature sent with every request. The default is 1. It is recorded with each run, so runs at different temperatures are never mixed.
 - `LLM_MAX_WAIT_MINUTES` sets how long one request may wait for a rate limit to clear before the scenario is recorded as an error. The default is 60.
 - `LLM_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` uses Claude. That one is paid.
 

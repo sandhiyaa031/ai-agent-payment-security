@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScriptedAttacker } from "../src/attacks/attacker";
 import { CORE_SCENARIO_IDS, SCENARIO_SET_VERSION, SCENARIOS as ALL_SCENARIOS } from "../src/attacks/scenarios";
-import { identityOf, openProgress, resultsFromEvents, type RunIdentity } from "../src/checkpoint";
+import { identityOf, openProgress, resultsFromEvents, specs, type RunIdentity } from "../src/checkpoint";
 import { MockRail } from "../src/rail/mock";
 import { doneEvent, eventHooks, toRecording, type Recording, type RunEvent } from "../src/recording";
 import { runAll, type RunResult } from "../src/runner";
@@ -37,6 +37,7 @@ const identity = (subject: Subject, defense: Defense): RunIdentity => ({
   scenarioSetVersion: SCENARIO_SET_VERSION,
   harnessVersion: "test",
   scenarioIds: SCENARIOS.map((s) => s.id),
+  ...specs(subject.manifest?.(), new ScriptedAttacker().manifest()),
 });
 
 /** A run with nothing saved along the way: what every continued run must come out equal to. */
@@ -51,7 +52,7 @@ async function straight(repeats: number, subject: Subject = new GullibleSubject(
 async function sit(options: { path: string; repeats: number; stopAfter?: number; startFrom?: Recording; subject?: Subject; defense?: Defense }) {
   const subject = options.subject ?? new GullibleSubject();
   const defense = options.defense ?? NO_DEFENSE;
-  const progress = openProgress(options.path, identity(subject, defense), options.startFrom);
+  const progress = openProgress(options.path, identity(subject, defense), { startFrom: options.startFrom });
   const earlier = progress.results;
   const events: RunEvent[] = progress.events;
   const recorder = eventHooks((event) => events.push(event));
@@ -70,6 +71,7 @@ async function sit(options: { path: string; repeats: number; stopAfter?: number;
     defense,
     repeats: options.repeats,
     resume: { startedAt: progress.startedAt, results: earlier },
+    seed: progress.seed,
     hooks: {
       ...recorder,
       onScenario: (result) => {
@@ -81,13 +83,17 @@ async function sit(options: { path: string; repeats: number; stopAfter?: number;
     },
   });
   events.push(doneEvent(run));
-  const recording = toRecording(run, events, new Date(), "test", progress.sittings());
+  const recording = toRecording(run, events, new Date(), "test", { sittings: progress.sittings() });
   progress.clear();
   return { run, recording, finishedNow };
 }
 
-/** What two runs must agree on to count as the same result: everything except when they ran and their random id. */
-const outcome = (run: RunResult) => ({ ...run, runId: "", startedAt: "", finishedAt: "" });
+/**
+ * What two runs must agree on to count as the same result: everything except
+ * when they ran, their random id, and their seed. The agents here are
+ * rule-based, so the seed cannot change what they do.
+ */
+const outcome = (run: RunResult) => ({ ...run, runId: "", startedAt: "", finishedAt: "", seed: 0 });
 const starts = (events: RunEvent[]) => events.filter((entry) => entry.event === "scenario-start").map((entry) => entry.data);
 
 describe("rebuilding results from a recording's events", () => {
@@ -141,10 +147,13 @@ describe("a run that is stopped and continued", () => {
 
     await expect(sit({ path, repeats: 2, stopAfter: 7 })).rejects.toThrow("power cut");
     expect(existsSync(path)).toBe(true);
+    const firstSeed = openProgress(path, identity(new GullibleSubject(), NO_DEFENSE)).seed;
     await expect(sit({ path, repeats: 2, stopAfter: 9 })).rejects.toThrow("power cut");
     const last = await sit({ path, repeats: 2 });
 
     expect(last.finishedNow).toBe(SCENARIOS.length * 2 - 16);
+    // Every sitting carried on with the seed the run started with.
+    expect(last.run.seed).toBe(firstSeed);
     expect(outcome(last.run)).toEqual(outcome(whole));
     expect(starts(last.recording.events)).toEqual(whole.scenarios.map((result) => ({ id: result.id, trial: result.trial })));
     expect(last.recording.events.at(-1)).toMatchObject({ event: "done", data: { metrics: whole.metrics } });
@@ -208,7 +217,7 @@ describe("adding trials to a finished recording", () => {
   it("refuses a recording made under other settings", async () => {
     const dir = tempDir();
     const first = await sit({ path: join(dir, "a.partial.json"), repeats: 1 });
-    expect(() => openProgress(join(dir, "b.partial.json"), identity(new StrictSubject(), NO_DEFENSE), first.recording)).toThrow(
+    expect(() => openProgress(join(dir, "b.partial.json"), identity(new StrictSubject(), NO_DEFENSE), { startFrom: first.recording })).toThrow(
       /different settings \(subject\), so trials cannot be added/,
     );
   });
@@ -237,6 +246,7 @@ describe("the command line", () => {
 
     expect(cli(dir, "--repeat", "1", "--record", "Demo Run").status).toBe(0);
     expect(existsSync(join(dir, "runs", "demo-run.partial.json"))).toBe(false);
+    const firstRecording = JSON.parse(readFileSync(join(dir, "recordings", "demo-run.json"), "utf8")) as Recording;
 
     const extended = cli(dir, "--repeat", "2", "--record", "Demo Run", "--extend", "--json", "extended.json");
     expect(extended.status).toBe(0);
@@ -245,6 +255,7 @@ describe("the command line", () => {
 
     const recording = JSON.parse(readFileSync(join(dir, "recordings", "demo-run.json"), "utf8")) as Recording;
     expect(recording.repeats).toBe(2);
+    expect(recording.seed).toBe(firstRecording.seed);
     expect(recording.sittings!.map((sitting) => sitting.scenarioRuns)).toEqual([ALL_SCENARIOS.length, ALL_SCENARIOS.length]);
     expect(existsSync(join(dir, "runs", "demo-run.partial.json"))).toBe(false);
 

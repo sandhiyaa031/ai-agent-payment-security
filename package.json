@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-payment-security",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Crashtest: measures what an AI support agent with a PayPal refund tool can be talked into, and what actually gets through.",
   "license": "MIT",
