@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ScriptedAttacker } from "../src/attacks/attacker";
 import { SCENARIOS } from "../src/attacks/scenarios";
+import { fillBlocks } from "../src/insert-results";
 import { MockRail } from "../src/rail/mock";
 import { doneEvent, eventHooks, toRecording, type Recording, type RunEvent } from "../src/recording";
 import { experimentSection, pilotSection, resultsMarkdown, type TwoArmExperiment } from "../src/results-report";
@@ -78,5 +79,30 @@ describe("experiment results", () => {
     const page = resultsMarkdown([spec(2)], [pilot, ...registered], new Date());
     const rates = page.slice(page.indexOf("### Rates"), page.indexOf("### H1"));
     expect(rates).toContain("| test-model | control | 2 |");
+  });
+});
+
+describe("copying results into other documents", () => {
+  const results = "# Results\n\n## Experiment 01\n\n### Rates\n\n| a |\n\n### H1\n\nYes.\n\n### Other\n\nSkip.\n\n## Experiment 02\n\n**In progress.**\n";
+  const document = "Intro\n\n<!-- results:one:start -->\nold\n<!-- results:one:end -->\n\n<!-- results:two:start -->\nwaiting\n<!-- results:two:end -->\n\nEnd\n";
+
+  it("replaces a block with the sections that exist, and only that block", () => {
+    const filled = fillBlocks(document, results, [{ block: "one", experiment: "## Experiment 01", sections: ["### Rates", "### H1"], chart: "c.svg" }]);
+    expect(filled).toContain("<!-- results:one:start -->\n![Security and utility by defense](c.svg)\n\n### Rates\n\n| a |\n\n### H1\n\nYes.\n<!-- results:one:end -->");
+    expect(filled).not.toContain("Skip.");
+    expect(filled).toContain("waiting");
+    expect(filled.startsWith("Intro")).toBe(true);
+    expect(filled.endsWith("End\n")).toBe(true);
+  });
+
+  it("leaves a block alone until its experiment has results, and can be run again", () => {
+    const blocks = [{ block: "two", experiment: "## Experiment 02", sections: ["### Every defense"] }];
+    expect(fillBlocks(document, results, blocks)).toBe(document);
+    const once = fillBlocks(document, results, [{ block: "one", experiment: "## Experiment 01", sections: ["### H1"] }]);
+    expect(fillBlocks(once, results, [{ block: "one", experiment: "## Experiment 01", sections: ["### H1"] }])).toBe(once);
+  });
+
+  it("refuses a document that has lost its markers", () => {
+    expect(() => fillBlocks("no markers here", results, [{ block: "one", experiment: "## Experiment 01", sections: ["### H1"] }])).toThrow('"one" is missing');
   });
 });

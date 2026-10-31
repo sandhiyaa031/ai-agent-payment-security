@@ -287,3 +287,13 @@ All settings live in `.env`, which is never committed.
 - Added: recorded runs save their progress and can be continued, and finished recordings can have trials added (`--extend`). Recordings list their sittings. The recording schema is unchanged; `sittings` is an optional field.
 - Added: the hosted copy reports its version and commit, and no longer loads PayPal's toolkit.
 - No locked decision changed.
+
+**2026-10-25 to 31, experiments and defenses**
+
+- Added: each run records its seed, pinned temperature, prompt and tool fingerprints, and what the provider reported serving (harness 0.2.0).
+- Added: pre-registered experiments in `experiments/`, reported by `src/results-report.ts` and `src/experiment-report.ts` only once complete or past their cutoff.
+- Added: statistics in `src/stats.ts`; see the decision log for why each method was chosen.
+- Added: defenses evaluated by replay in `src/defenses/`: guard model, policy engine, human approval, velocity limits. Spotlighting is a prompt variant.
+- Added: scenario sets as data files in `scenarios/`, with free-text order fields for indirect injection. The built-in set 2 is unchanged.
+- Added: store credit as a second privileged tool, through the same checkpoint.
+- No locked decision changed.

@@ -16,7 +16,7 @@
     "llm:check": "tsx scripts/llm-check.ts",
     "taxonomy": "tsx scripts/taxonomy.ts",
     "guard-scores": "tsx scripts/guard-scores.ts",
-    "reproduce": "tsx scripts/taxonomy.ts && tsx scripts/results.ts > RESULTS.md",
+    "reproduce": "tsx scripts/taxonomy.ts && tsx scripts/results.ts > RESULTS.md && tsx scripts/insert-results.ts",
     "results": "tsx scripts/results.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint --diagnostic-level=warn --error-on-warnings",
