@@ -11,6 +11,11 @@ let shownLost = 0;
 let grid;
 let runsGrid;
 let scenarioList = [];
+/** Every known scenario by id, so a recording from any scenario set can be shown. */
+const catalogue = new Map();
+/** Which trial and how many turns of it the conversation panel shows. A null turn limit means all of it. */
+let viewTrial = null;
+let viewTurns = null;
 
 const PROFILE_HELP = {
   baseline: "Agent vulnerability. Runs on the built-in test rail with no policy defense, so you see what the agent attempts and what it would cost.",
@@ -65,7 +70,8 @@ function buildGrid() {
   grid = agGrid.createGrid($("grid"), {
     theme: gridTheme(),
     columnDefs: [
-      { headerName: "Scenario", field: "title", flex: 2.4, minWidth: 220, tooltipField: "title" },
+      { headerName: "Scenario", field: "title", flex: 2.4, minWidth: 220, tooltipField: "title", filter: true, floatingFilter: true },
+      { headerName: "Family", field: "family", width: 170, tooltipField: "family", filter: true, floatingFilter: true },
       { headerName: "Kind", field: "kind", width: 92 },
       { headerName: "Result", colId: "result", width: 156, cellRenderer: pill, valueGetter: (p) => statusOf(p.data).text },
       {
@@ -105,6 +111,12 @@ function buildGrid() {
   });
 }
 
+/** The pre-registered experiment a run belongs to, or "pilot". */
+function experimentOf(run) {
+  const match = run.protocol?.path.match(/experiments\/(\d+)/);
+  return match ? `Experiment ${match[1]}` : "pilot";
+}
+
 function defenseText(defense) {
   const parts = [];
   if (defense?.enforcePolicy) parts.push("policy in code");
@@ -116,10 +128,11 @@ function buildRunsGrid() {
   runsGrid = agGrid.createGrid($("runs"), {
     theme: gridTheme(),
     columnDefs: [
-      { headerName: "Agent", field: "subject", flex: 2, minWidth: 220, tooltipField: "subject" },
-      { headerName: "Experiment", field: "profile", width: 140, valueFormatter: (p) => PROFILE_LABELS[p.value] ?? p.value },
-      { headerName: "Attacker", field: "attacker", flex: 1, minWidth: 120, tooltipField: "attacker" },
-      { headerName: "Defenses", colId: "defenses", width: 150, valueGetter: (p) => defenseText(p.data.defense) },
+      { headerName: "Agent", field: "subject", flex: 2, minWidth: 220, tooltipField: "subject", filter: true, floatingFilter: true },
+      { headerName: "Experiment", colId: "experiment", width: 130, valueGetter: (p) => experimentOf(p.data), filter: true, floatingFilter: true },
+      { headerName: "Profile", field: "profile", width: 120, valueFormatter: (p) => PROFILE_LABELS[p.value] ?? p.value },
+      { headerName: "Attacker", field: "attacker", flex: 1, minWidth: 120, tooltipField: "attacker", filter: true, floatingFilter: true },
+      { headerName: "Defenses", colId: "defenses", width: 150, valueGetter: (p) => defenseText(p.data.defense), filter: true, floatingFilter: true },
       { headerName: "Trials", field: "repeats", width: 90, cellClass: "num", headerTooltip: "How many times each scenario was run." },
       {
         headerName: "Attacks with an attempt",
@@ -170,6 +183,76 @@ function buildRunsGrid() {
 async function loadRuns() {
   const runs = await (await fetch("/api/recordings")).json();
   runsGrid.setGridOption("rowData", runs);
+  fillCompare(runs);
+}
+
+/** Wilson 95% interval, the same as src/stats.ts, for the comparison table. */
+function wilson(k, n) {
+  if (n === 0) return { lo: 0, hi: 1 };
+  const z = 1.959963984540054;
+  const p = k / n;
+  const d = 1 + (z * z) / n;
+  const c = (p + (z * z) / (2 * n)) / d;
+  const h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return { lo: k === 0 ? 0 : Math.max(0, c - h), hi: k === n ? 1 : Math.min(1, c + h) };
+}
+
+const pct = (x) => `${(x * 100).toFixed(1)}%`;
+const rateText = (k, n) => {
+  const { lo, hi } = wilson(k, n);
+  return `${k} of ${n} (${pct(n === 0 ? 0 : k / n)}; ${pct(lo)} to ${pct(hi)})`;
+};
+
+const COMPARED = [
+  { label: "Attack success", counts: (m) => [m.attackScenariosWithAttempt, m.attackScenarios] },
+  { label: "Attacks that lost money", counts: (m) => [m.attackScenariosWithLoss, m.attackScenarios] },
+  { label: "Honest orders paid in full", counts: (m) => [m.eligibleFullyRefunded, m.eligibleOrders] },
+  { label: "Unresolved trials", counts: (m) => [m.unresolvedScenarios, m.scenarios] },
+];
+
+let compareRuns = [];
+
+function fillCompare(runs) {
+  compareRuns = runs;
+  for (const [id, fallback] of [["compareA", 0], ["compareB", 1]]) {
+    const picker = $(id);
+    const previous = picker.value;
+    picker.replaceChildren();
+    for (const run of runs) {
+      const option = document.createElement("option");
+      option.value = run.id;
+      option.textContent = `${experimentOf(run)}: ${run.subject}, ${run.profile}, ${run.attacker}`;
+      picker.append(option);
+    }
+    picker.value = runs.some((run) => run.id === previous) ? previous : (runs[fallback]?.id ?? "");
+  }
+  renderCompare();
+}
+
+function renderCompare() {
+  const a = compareRuns.find((run) => run.id === $("compareA").value);
+  const b = compareRuns.find((run) => run.id === $("compareB").value);
+  const body = $("compareBody");
+  body.replaceChildren();
+  if (!a || !b) return;
+  const cellRow = (label, first, second, difference = "") => {
+    const tr = document.createElement("tr");
+    for (const value of [label, first, second, difference]) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.append(td);
+    }
+    body.append(tr);
+  };
+  cellRow("Trials per scenario", String(a.repeats), String(b.repeats));
+  cellRow("Defenses", defenseText(a.defense), defenseText(b.defense));
+  for (const { label, counts } of COMPARED) {
+    const [ka, na] = counts(a.metrics);
+    const [kb, nb] = counts(b.metrics);
+    const points = ((nb === 0 ? 0 : kb / nb) - (na === 0 ? 0 : ka / na)) * 100;
+    cellRow(label, rateText(ka, na), rateText(kb, nb), `${points >= 0 ? "+" : "−"}${Math.abs(points).toFixed(1)} points`);
+  }
+  cellRow("Money lost", usd(a.metrics.overRefundCents), usd(b.metrics.overRefundCents));
 }
 
 function refreshRow(row) {
@@ -178,8 +261,50 @@ function refreshRow(row) {
 
 function select(id) {
   selectedId = id;
+  viewTrial = null;
+  viewTurns = null;
   grid.getRowNode(id)?.setSelected(true);
   renderChat();
+}
+
+const eventsToShow = (row) => row.history.get(viewTrial) ?? row.events;
+const turnsIn = (events) => events.filter((event) => event.type === "customer").length;
+
+/** The events up to and including the agent's answer in the given number of turns. */
+function upToTurn(events, turns) {
+  const out = [];
+  let seen = 0;
+  for (const event of events) {
+    if (event.type === "customer") {
+      if (seen === turns) break;
+      seen += 1;
+    }
+    out.push(event);
+  }
+  return out;
+}
+
+function renderChatControls(row) {
+  const controls = $("chatControls");
+  const trials = row ? [...row.history.keys()] : [];
+  controls.hidden = !row || row.state !== "done" || trials.length === 0;
+  if (controls.hidden) return;
+  const picker = $("trial");
+  picker.replaceChildren();
+  for (const trial of trials) {
+    const option = document.createElement("option");
+    option.value = String(trial);
+    option.textContent = String(trial);
+    picker.append(option);
+  }
+  const shownTrial = viewTrial ?? trials.at(-1);
+  picker.value = String(shownTrial);
+  const total = turnsIn(row.history.get(shownTrial) ?? []);
+  const showing = viewTurns ?? total;
+  $("stepBack").disabled = showing <= 1;
+  $("stepNext").disabled = showing >= total;
+  $("stepAll").disabled = viewTurns === null;
+  $("stepInfo").textContent = total > 0 ? `Turn ${showing} of ${total}` : "";
 }
 
 /** Redraws the chat; only a message that just arrived animates in. */
@@ -188,14 +313,16 @@ function renderChat(animateLast = false) {
   const row = rows.get(selectedId);
   chat.replaceChildren();
   $("chatTitle").textContent = row ? row.title : "Conversation";
-  if (!row || (row.events.length === 0 && !row.error)) {
+  renderChatControls(row);
+  const events = row ? eventsToShow(row) : [];
+  if (!row || (events.length === 0 && !row.error)) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = row ? "Nothing said yet." : "Select a scenario to read the conversation.";
     chat.append(empty);
     return;
   }
-  for (const event of row.events) chat.append(bubble(event));
+  for (const event of viewTurns === null ? events : upToTurn(events, viewTurns)) chat.append(bubble(event));
   if (row.error) {
     const el = document.createElement("div");
     el.className = "tool unresolved";
@@ -228,6 +355,12 @@ function bubble(event) {
   el.className = `msg ${event.type}`;
   const who = document.createElement("small");
   who.textContent = event.type === "customer" ? "Customer" : "Agent";
+  if (event.technique) {
+    const tag = document.createElement("span");
+    tag.className = "technique";
+    tag.textContent = event.technique;
+    who.append(tag);
+  }
   const text = document.createElement("span");
   text.textContent = event.message;
   el.append(who, text);
@@ -286,17 +419,19 @@ function apply(type, data) {
   if (type === "done") return finish(data);
   if (type === "failed") return fail(data.message);
 
-  const row = rows.get(data.id);
+  let row = rows.get(data.id);
+  if (!row && type === "scenario-start") row = addRow(catalogue.get(data.id) ?? { id: data.id, title: data.id, kind: "attack", family: "" });
   if (!row) return;
   if (type === "scenario-start") {
     row.state = "running";
     row.trial = data.trial ?? 1;
-    // The conversation panel shows the trial in progress; totals keep adding up.
+    // The conversation panel follows the trial in progress; every trial is kept, and totals keep adding up.
     row.events = [];
+    row.history.set(row.trial, row.events);
     row.error = undefined;
     if (followLive) select(row.id);
   } else if (type === "customer" || type === "agent") {
-    row.events.push({ type, message: data.message });
+    row.events.push({ type, message: data.message, technique: data.technique });
   } else if (type === "tool") {
     row.events.push({ type, call: data.call });
   } else if (type === "scenario") {
@@ -394,7 +529,8 @@ function setBusy(busy, label = "Running…") {
 
 /** Starts a live run or a replay; both arrive as the same stream of events. */
 function begin(url, label) {
-  reset(scenarioList);
+  // A replay may come from a scenario set other than the one on the form, so its rows are added as they arrive.
+  reset(url.startsWith("/api/replay") ? [] : scenarioList);
   $("lostOf").textContent = label;
   followLive = true;
   setBusy(true, label);
@@ -417,29 +553,40 @@ function begin(url, label) {
   };
 }
 
+const newRow = (s) => ({
+  ...s,
+  family: s.family ?? catalogue.get(s.id)?.family ?? "",
+  history: new Map(),
+  state: "queued",
+  trial: 1,
+  trials: 0,
+  trialsWithLoss: 0,
+  trialsWithAttempt: 0,
+  trialsShort: 0,
+  trialsUnresolved: 0,
+  overRefundCents: 0,
+  underRefundCents: 0,
+  entitledCents: 0,
+  correctlyRefundedCents: 0,
+  improperAttempts: 0,
+  improperCents: 0,
+  events: [],
+});
+
+function addRow(scenario) {
+  const row = newRow(scenario);
+  rows.set(scenario.id, row);
+  grid.applyTransaction({ add: [{ ...row }] });
+  return row;
+}
+
 function reset(scenarios) {
   rows.clear();
-  for (const s of scenarios) {
-    rows.set(s.id, {
-      ...s,
-      state: "queued",
-      trial: 1,
-      trials: 0,
-      trialsWithLoss: 0,
-      trialsWithAttempt: 0,
-      trialsShort: 0,
-      trialsUnresolved: 0,
-      overRefundCents: 0,
-      underRefundCents: 0,
-      entitledCents: 0,
-      correctlyRefundedCents: 0,
-      improperAttempts: 0,
-      improperCents: 0,
-      events: [],
-    });
-  }
+  for (const s of scenarios) rows.set(s.id, newRow(s));
   grid.setGridOption("rowData", [...rows.values()].map((row) => ({ ...row })));
   selectedId = null;
+  viewTrial = null;
+  viewTurns = null;
   lostSoFar = 0;
   shownLost = 0;
   $("lost").textContent = usd(0);
@@ -469,6 +616,7 @@ async function start() {
   buildRunsGrid();
   const options = await (await fetch("/api/options")).json();
   scenarioList = options.scenarios;
+  for (const scenario of options.catalogue ?? []) catalogue.set(scenario.id, scenario);
   fillSelect($("profile"), options.profiles);
   fillSelect($("subject"), options.subjects);
   fillSelect($("attacker"), options.attackers);
@@ -483,6 +631,33 @@ async function start() {
   reset(options.scenarios);
   $("lostOf").textContent = "Run a test to see what the agent gives away.";
   loadRuns();
+
+  $("frontier").addEventListener("load", () => {
+    $("frontierPanel").hidden = false;
+  });
+  $("frontier").src = "/frontier.svg";
+  $("compareA").addEventListener("change", renderCompare);
+  $("compareB").addEventListener("change", renderCompare);
+  $("trial").addEventListener("change", () => {
+    viewTrial = Number($("trial").value);
+    viewTurns = null;
+    renderChat();
+  });
+  const step = (change) => {
+    const row = rows.get(selectedId);
+    if (!row) return;
+    const trial = viewTrial ?? [...row.history.keys()].at(-1);
+    const total = turnsIn(row.history.get(trial) ?? []);
+    viewTrial = trial;
+    viewTurns = Math.min(total, Math.max(1, (viewTurns ?? (change < 0 ? total : 0)) + change));
+    renderChat();
+  };
+  $("stepBack").addEventListener("click", () => step(-1));
+  $("stepNext").addEventListener("click", () => step(1));
+  $("stepAll").addEventListener("click", () => {
+    viewTurns = null;
+    renderChat();
+  });
 
   $("controls").addEventListener("submit", (event) => {
     event.preventDefault();

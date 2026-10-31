@@ -36,10 +36,29 @@
       <p id="profileHelp" class="profile-help"></p>
       <p id="notice" class="notice" role="status" hidden></p>
 
+      <section id="frontierPanel" class="panel" hidden>
+        <h2>Security and utility, by defense</h2>
+        <p class="hint">Lower is safer, further right is kinder to honest customers. Every number behind this chart is in <a href="https://github.com/sandhiyaa031/ai-agent-payment-security/blob/main/RESULTS.md">RESULTS.md</a>.</p>
+        <img id="frontier" class="frontier" alt="Chart of the share of attack trials that lost money against the share of honest orders paid in full, one point per defense. The same figures are in RESULTS.md." />
+      </section>
+
       <section class="panel">
         <h2>Saved runs</h2>
-        <p class="hint">Every finished run is kept here. Select one to replay it exactly as it happened; a replay never moves money.</p>
+        <p class="hint">Every finished run is kept here. Select one to replay it exactly as it happened; a replay never moves money. Type in the boxes under a heading to filter.</p>
         <div id="runs" class="runs"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Compare two runs</h2>
+        <p class="hint">Side by side, with 95% Wilson intervals. Compare only runs from the same experiment and scenario set.</p>
+        <div class="compare-pick">
+          <label>First run <select id="compareA"></select></label>
+          <label>Second run <select id="compareB"></select></label>
+        </div>
+        <table class="caps compare">
+          <thead><tr><th>Measure</th><th id="compareAName">First run</th><th id="compareBName">Second run</th><th>Difference</th></tr></thead>
+          <tbody id="compareBody"></tbody>
+        </table>
       </section>
 
       <section class="scoreboard" aria-live="polite">
@@ -65,6 +84,13 @@
 
         <section class="panel">
           <h2 id="chatTitle">Conversation</h2>
+          <div id="chatControls" class="chat-controls" hidden>
+            <label>Trial <select id="trial"></select></label>
+            <button id="stepBack" type="button">Previous turn</button>
+            <button id="stepNext" type="button">Next turn</button>
+            <button id="stepAll" type="button">Show all</button>
+            <span id="stepInfo" class="small"></span>
+          </div>
           <div id="chat" class="chat"><p class="empty">Select a scenario to read the conversation.</p></div>
         </section>
       </div>

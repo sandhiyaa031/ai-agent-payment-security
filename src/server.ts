@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app";
 import { SCENARIOS } from "./attacks/scenarios";
+import { loadSuite } from "./attacks/suite";
 import { createAttacker, createRail, createSubject, harnessVersion, keyStatus, loadEnv } from "./config";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,6 +28,8 @@ const handle = createApp({
   harnessVersion: harnessVersion(),
   commit,
   scenarios: SCENARIOS,
+  catalogue: ["set-2.json", "set-3.json"].flatMap((file) => loadSuite(join(ROOT, "scenarios", file)).scenarios),
+  frontierChart: join(ROOT, "docs", "frontier.svg"),
   keyStatus,
   createRail,
   createSubject,

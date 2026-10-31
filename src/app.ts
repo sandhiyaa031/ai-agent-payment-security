@@ -26,6 +26,10 @@ export interface AppDeps {
   /** Short id of the deployed commit, when the host provides one. */
   commit?: string;
   scenarios: Scenario[];
+  /** Every scenario a recording might mention, with its family, so any recording can be shown. */
+  catalogue?: Scenario[];
+  /** The frontier chart, when one has been generated. */
+  frontierChart?: string;
   keyStatus(): { model: boolean; paypal: boolean };
   createRail(kind: "mock" | "paypal"): PaymentRail;
   createSubject(kind: string): Subject;
@@ -118,6 +122,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
         { id: "adaptive", label: "Adaptive attacker", available: keys.model, needs: needsModel },
       ],
       scenarios: deps.scenarios.map(({ id, title, kind, category }) => ({ id, title, kind, category })),
+      catalogue: (deps.catalogue ?? deps.scenarios).map(({ id, title, kind, category, family }) => ({ id, title, kind, category, family: family ?? category })),
     };
   }
 
@@ -204,6 +209,7 @@ export function createApp(deps: AppDeps): (request: IncomingMessage, response: S
     if (url.pathname === "/api/run") return streamRun(url, request, response);
     if (url.pathname === "/api/replay") return streamReplay(url, response);
     if (url.pathname === "/vendor/ag-grid.js") return sendFile(response, deps.gridScript);
+    if (url.pathname === "/frontier.svg" && deps.frontierChart) return sendFile(response, deps.frontierChart);
 
     const relative = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     const target = normalize(join(deps.publicDir, relative));

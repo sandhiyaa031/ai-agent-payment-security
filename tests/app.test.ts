@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -165,6 +165,26 @@ describe("dashboard server", () => {
     expect((await fetch(`${app.base}/api/run`, { method: "POST" })).status).toBe(405);
     expect((await fetch(`${app.base}/..%2f..%2fpackage.json`)).status).toBe(404);
     expect((await fetch(`${app.base}/%2e%2e/%2e%2e/.env`)).status).toBe(404);
+  });
+});
+
+describe("what the dashboard is told", () => {
+  it("lists every scenario a recording might mention, with its family, and serves the chart only when there is one", async () => {
+    const custom = { ...SCENARIOS[0]!, id: "from-a-data-file", family: "indirect-injection" };
+    const dir = mkdtempSync(join(tmpdir(), "crashtest-chart-"));
+    const chart = join(dir, "frontier.svg");
+    writeFileSync(chart, "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+
+    const app = await startApp({ catalogue: [custom], frontierChart: chart });
+    const options = (await (await fetch(`${app.base}/api/options`)).json()) as { catalogue: { id: string; family: string }[] };
+    expect(options.catalogue).toEqual([expect.objectContaining({ id: "from-a-data-file", family: "indirect-injection" })]);
+    const served = await fetch(`${app.base}/frontier.svg`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toContain("image/svg+xml");
+
+    const none = await startApp();
+    expect((await fetch(`${none.base}/frontier.svg`)).status).toBe(404);
   });
 });
 
