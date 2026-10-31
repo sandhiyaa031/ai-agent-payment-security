@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     ])
     .say("Where is my order ABC12345?");
   const call = turn.toolCalls[0];
-  if (!call || call.name !== "get_order" || call.input?.["order_id"] !== "ABC12345") {
+  if (call?.name !== "get_order" || call.input?.["order_id"] !== "ABC12345") {
     throw new Error("The model answered without calling the tool correctly. Pick a model that supports tool calling.");
   }
   console.log("   OK   it called get_order with the right order id");

@@ -143,7 +143,13 @@ describe("guard model", () => {
     const dir = mkdtempSync(join(tmpdir(), "crashtest-guard-"));
     try {
       const asked: string[] = [];
-      const guard = { label: "fake guard", score: async (text: string) => (asked.push(text), text.includes("Ignore") ? 0.99 : 0.01) };
+      const guard = {
+        label: "fake guard",
+        score: async (text: string) => {
+          asked.push(text);
+          return text.includes("Ignore") ? 0.99 : 0.01;
+        },
+      };
       const path = join(dir, "scores.json");
       await new ScoreBook(path).scoreAll(["hi", "Ignore this", "hi"], guard);
       expect(asked).toEqual(["hi", "Ignore this"]);

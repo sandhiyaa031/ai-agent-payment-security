@@ -1,5 +1,5 @@
 import { compare, rate, recordingFacts, summarize, type Rate, type Summary, type TrialFacts } from "./analysis";
-import { flaggedTurns, ScoreBook } from "./defenses/guard";
+import { flaggedTurns, type ScoreBook } from "./defenses/guard";
 import { humanApproval, POLICY_ENGINE, recordedTrials, replay, velocityLimit, type BoundaryDefense, type RecordedTrial } from "./defenses/replay";
 import { frontierSvg, type FrontierPoint } from "./frontier";
 import type { Recording } from "./recording";
@@ -203,7 +203,9 @@ export function defenseSection(recordings: Recording[], book: ScoreBook | undefi
   const adjusted = holm(h2.map((entry) => entry.c.p));
   out.push("**H2.** Is attack success lower with spotlighting (D3, 5 trials) than with no defense (D0, 10 trials)?", "");
   out.push("| Model | D0 | D3 | Difference | p (one-sided) | p, Holm-adjusted | Supported at 0.05? |", "|---|---|---|---|---|---|---|");
-  h2.forEach(({ model, c }, index) => out.push(`| ${model} | ${cell(c.b)} | ${cell(c.a)} | ${diffCell(c.difference)} | ${pValue(c.p)} | ${pValue(adjusted[index]!)} | ${adjusted[index]! < 0.05 ? "yes" : "no"} |`));
+  h2.forEach(({ model, c }, index) => {
+    out.push(`| ${model} | ${cell(c.b)} | ${cell(c.a)} | ${diffCell(c.difference)} | ${pValue(c.p)} | ${pValue(adjusted[index]!)} | ${adjusted[index]! < 0.05 ? "yes" : "no"} |`);
+  });
   out.push("");
 
   const d0Live = find(E01, liveModel, "stock");

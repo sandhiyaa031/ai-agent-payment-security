@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+      # A fast end-to-end run: built-in agents, built-in test rail, scripted attacker. No keys needed.
+      - name: Smoke run, scenario set 2
+        run: npm run demo
+      - name: Smoke run, scenario set 3 from its data file
+        run: npm run crashtest -- --subject strict --suite scenarios/set-3.json
+
+      # The documents generated from data must match the data.
+      - name: Generated taxonomy is up to date
+        run: |
+          npm run -s taxonomy
+          git diff --exit-code docs/TAXONOMY.md

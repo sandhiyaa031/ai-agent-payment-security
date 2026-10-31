@@ -21,7 +21,7 @@ const PLOT = { left: 72, right: 28, top: 58, bottom: 62 };
 /** Colors checked for colour-blind separation in light and dark, by group. */
 const GROUP_CLASS: Record<FrontierPoint["group"], string> = { baseline: "s0", "prompt or input": "s1", "tool boundary": "s2", combined: "s3" };
 
-const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeXml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const percent = (x: number) => `${Math.round(x * 1000) / 10}%`;
 
 /** A round step that gives about five gridlines over the range. */
@@ -71,8 +71,8 @@ export function frontierSvg(points: FrontierPoint[], title: string): string {
 
   const out: string[] = [];
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">`);
-  out.push(`<title id="t">${escape(title)}</title>`);
-  out.push(`<desc id="d">${escape(points.map((p) => `${p.id}: loss ${percent(p.loss.rate)}, honest orders paid in full ${percent(p.honest.rate)}`).join("; "))}</desc>`);
+  out.push(`<title id="t">${escapeXml(title)}</title>`);
+  out.push(`<desc id="d">${escapeXml(points.map((p) => `${p.id}: loss ${percent(p.loss.rate)}, honest orders paid in full ${percent(p.honest.rate)}`).join("; "))}</desc>`);
   out.push(`<style>
   .bg { fill: #fcfcfb; } .ink { fill: #0b0b0b; } .soft { fill: #52514e; } .grid { stroke: #e7e6e2; } .axis { stroke: #a8a79f; } .bar { stroke-width: 1.5; stroke-opacity: .55; }
   .ring { stroke: #fcfcfb; stroke-width: 2; }
@@ -83,14 +83,14 @@ export function frontierSvg(points: FrontierPoint[], title: string): string {
   }
 </style>`);
   out.push(`<rect class="bg" width="${WIDTH}" height="${HEIGHT}"/>`);
-  out.push(`<text class="ink" x="${PLOT.left}" y="24" font-size="16" font-weight="600">${escape(title)}</text>`);
+  out.push(`<text class="ink" x="${PLOT.left}" y="24" font-size="16" font-weight="600">${escapeXml(title)}</text>`);
 
   // Legend, one row, so identity never rests on the color of a point alone.
   const groups = [...new Set(points.map((p) => p.group))];
   let legendX = PLOT.left;
   for (const group of groups) {
     out.push(`<circle class="${GROUP_CLASS[group]}" cx="${legendX + 5}" cy="42" r="5"/>`);
-    out.push(`<text class="soft" x="${legendX + 15}" y="46" font-size="12">${escape(group)}</text>`);
+    out.push(`<text class="soft" x="${legendX + 15}" y="46" font-size="12">${escapeXml(group)}</text>`);
     legendX += 15 + group.length * 7 + 18;
   }
 
@@ -143,7 +143,7 @@ export function frontierSvg(points: FrontierPoint[], title: string): string {
       const labelX = spot.x + width / 2 < x ? spot.x + width + 2 : spot.x - 2;
       out.push(`<line class="axis" x1="${x}" y1="${y}" x2="${labelX}" y2="${labelY}"/>`);
     }
-    out.push(`<text class="ink" x="${spot.x}" y="${spot.y + 11}" font-size="12">${escape(text)}</text>`);
+    out.push(`<text class="ink" x="${spot.x}" y="${spot.y + 11}" font-size="12">${escapeXml(text)}</text>`);
   }
   out.push("</svg>");
   return `${out.join("\n")}\n`;

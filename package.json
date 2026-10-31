@@ -19,6 +19,7 @@
     "reproduce": "tsx scripts/taxonomy.ts && tsx scripts/results.ts > RESULTS.md",
     "results": "tsx scripts/results.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint --diagnostic-level=warn --error-on-warnings",
     "test": "vitest run"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "ag-grid-community": "^36.2.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
     "@types/node": "^26.6.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

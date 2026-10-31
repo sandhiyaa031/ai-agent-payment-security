@@ -16,7 +16,6 @@ import type { Recording } from "../src/recording";
 import { runAll } from "../src/runner";
 import { POLICY_VERSION } from "../src/store/policy";
 import { ModelSubject, promptTemplate } from "../src/subject/agent";
-import { GullibleSubject } from "../src/subject/scripted";
 import { NO_DEFENSE } from "./helpers";
 
 const SCENARIOS = ALL_SCENARIOS.filter((s) => CORE_SCENARIO_IDS.includes(s.id));
@@ -177,7 +176,10 @@ describe("seeds and per-conversation usage", () => {
 
   it("seed the adaptive attacker separately for each turn", async () => {
     let turn = 0;
-    const attacker = meteredModel("attacker", () => ({ text: (turn += 1) % 3 === 0 ? "STOP" : "I want my money back." }));
+    const attacker = meteredModel("attacker", () => {
+      turn += 1;
+      return { text: turn % 3 === 0 ? "STOP" : "I want my money back." };
+    });
     const result = await runAll({
       profile: "baseline",
       scenarios: SCENARIOS.slice(0, 2),

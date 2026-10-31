@@ -194,9 +194,12 @@ export class OpenAiCompatibleModel implements ChatModel {
             await this.pause(wait);
             continue;
           }
-        } else if ((blindFailures += 1) < MAX_BLIND_ATTEMPTS) {
-          await backOff(attempt);
-          continue;
+        } else {
+          blindFailures += 1;
+          if (blindFailures < MAX_BLIND_ATTEMPTS) {
+            await backOff(attempt);
+            continue;
+          }
         }
       }
       const detail = withoutAccountId(body.error?.message ?? (text.slice(0, 200) || response.statusText));
