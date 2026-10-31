@@ -31,6 +31,7 @@ Usage: npm run crashtest -- [options]
                                         toolkit is the same agent refunding through
                                         PayPal's Agent Toolkit (sandbox profile only)
   --attacker <scripted|adaptive>        Who plays the customer (default scripted)
+  --max-turns <n>                       Turn limit for the adaptive attacker (default 5)
   --cap <dollars>                       Extra defense: ceiling on total refunds per order
   --repeat <n>                          Run each scenario n times (default 1). Models vary
                                         between runs; the report gives counts per scenario
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
       profile: { type: "string" },
       subject: { type: "string" },
       attacker: { type: "string" },
+      "max-turns": { type: "string" },
       cap: { type: "string" },
       repeat: { type: "string" },
       only: { type: "string", multiple: true },
@@ -85,7 +87,9 @@ async function main(): Promise<void> {
   const plan = planRun(values, { hosted: false });
 
   const subject = createSubject(plan.subject);
-  const attacker = createAttacker(plan.attacker);
+  const maxTurns = values["max-turns"] === undefined ? undefined : Number(values["max-turns"]);
+  if (maxTurns !== undefined && (!Number.isInteger(maxTurns) || maxTurns < 1)) throw new Error("--max-turns must be a whole number of 1 or more.");
+  const attacker = createAttacker(plan.attacker, { maxTurns });
   const version = harnessVersion();
   let requestedSeed: number | undefined;
   if (values.seed !== undefined) {

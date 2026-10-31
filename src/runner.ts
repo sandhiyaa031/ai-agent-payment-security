@@ -71,7 +71,7 @@ export interface RunResult extends RunSettings {
 /** Live progress callbacks. The CLI ignores most; the dashboard streams them. */
 export interface RunHooks {
   onScenarioStart?(scenario: Scenario, trial: number): void;
-  onCustomerMessage?(scenarioId: string, message: string): void;
+  onCustomerMessage?(scenarioId: string, message: string, technique?: string): void;
   onToolCall?(scenarioId: string, call: ToolCallRecord): void;
   onAgentReply?(scenarioId: string, message: string): void;
   onScenario?(result: ScenarioResult): void;
@@ -161,12 +161,12 @@ export async function runScenario(input: {
     };
 
     for (;;) {
-      const customer = await attacker.next(brief, transcript, { seed: seedFor(`attacker-${transcript.length}`) });
-      if (customer === null) break;
-      hooks?.onCustomerMessage?.(scenario.id, customer);
-      const agent = await chat.reply(customer);
+      const move = await attacker.next(brief, transcript, { seed: seedFor(`attacker-${transcript.length}`) });
+      if (move === null) break;
+      hooks?.onCustomerMessage?.(scenario.id, move.message, move.technique);
+      const agent = await chat.reply(move.message);
       hooks?.onAgentReply?.(scenario.id, agent);
-      transcript.push({ customer, agent });
+      transcript.push({ customer: move.message, agent, ...(move.technique === undefined ? {} : { technique: move.technique }) });
     }
   } catch (caught) {
     // A model or provider failure ends this scenario, not the run. It is

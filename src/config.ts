@@ -66,9 +66,9 @@ export function createSubject(kind: string): Subject {
   throw new Error(`Unknown subject "${kind}". Use gullible, strict, refuse-all, model, model-hardened, model-spotlight or toolkit.`);
 }
 
-export function createAttacker(kind: string): Attacker {
+export function createAttacker(kind: string, options: { maxTurns?: number } = {}): Attacker {
   if (kind === "scripted") return new ScriptedAttacker();
-  if (kind === "adaptive") return new AdaptiveAttacker(createModel("attacker"));
+  if (kind === "adaptive") return new AdaptiveAttacker(createModel("attacker"), options.maxTurns);
   throw new Error(`Unknown attacker "${kind}". Use scripted or adaptive.`);
 }
 

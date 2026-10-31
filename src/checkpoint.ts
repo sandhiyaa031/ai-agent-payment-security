@@ -41,6 +41,7 @@ export function resultsFromEvents(events: RunEvent[]): { results: ScenarioResult
   let transcript: Turn[] = [];
   let toolCalls: ToolCallRecord[] = [];
   let customer = "";
+  let technique: string | undefined;
 
   for (const entry of events) {
     if (entry.event === "done") continue;
@@ -51,9 +52,9 @@ export function resultsFromEvents(events: RunEvent[]): { results: ScenarioResult
     }
     open.push(entry);
     if (entry.event === "customer") {
-      customer = (entry.data as { message: string }).message;
+      ({ message: customer, technique } = entry.data as { message: string; technique?: string });
     } else if (entry.event === "agent") {
-      transcript.push({ customer, agent: (entry.data as { message: string }).message });
+      transcript.push({ customer, agent: (entry.data as { message: string }).message, ...(technique === undefined ? {} : { technique }) });
     } else if (entry.event === "tool") {
       toolCalls.push((entry.data as { call: ToolCallRecord }).call);
     } else if (entry.event === "scenario") {

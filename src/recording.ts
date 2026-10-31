@@ -67,7 +67,7 @@ export interface RecordingDir {
 export function eventHooks(emit: (event: RunEvent) => void): RunHooks {
   return {
     onScenarioStart: (scenario, trial) => emit({ event: "scenario-start", data: { id: scenario.id, trial } }),
-    onCustomerMessage: (id, message) => emit({ event: "customer", data: { id, message } }),
+    onCustomerMessage: (id, message, technique) => emit({ event: "customer", data: { id, message, ...(technique === undefined ? {} : { technique }) } }),
     onToolCall: (id, call) => emit({ event: "tool", data: { id, call } }),
     onAgentReply: (id, message) => emit({ event: "agent", data: { id, message } }),
     // The conversation already travelled as its own events, so the summary leaves it out.
