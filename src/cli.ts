@@ -39,6 +39,7 @@ Usage: npm run crashtest -- [options]
   --suite <path>                        Run the scenarios in this data file, for example
                                         scenarios/set-3.json (default: the built-in set 2)
   --only <scenario-id>                  Run only this scenario (can be given more than once)
+  --attacks-only                        Skip the honest-customer scenarios
   --json <path>                         Also write the full result as JSON
   --record <name>                       Save the run to recordings/<name>.json so the
                                         dashboard can replay it (these are committed).
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
       repeat: { type: "string" },
       suite: { type: "string" },
       only: { type: "string", multiple: true },
+      "attacks-only": { type: "boolean", default: false },
       json: { type: "string" },
       record: { type: "string" },
       extend: { type: "boolean", default: false },
@@ -88,7 +90,8 @@ async function main(): Promise<void> {
   if (unknown.length > 0) {
     throw new Error(`No scenario "${unknown.join(", ")}". Known: ${suite.scenarios.map((s) => s.id).join(", ")}`);
   }
-  const scenarios = wanted.length > 0 ? suite.scenarios.filter((s) => wanted.includes(s.id)) : suite.scenarios;
+  const chosen = wanted.length > 0 ? suite.scenarios.filter((s) => wanted.includes(s.id)) : suite.scenarios;
+  const scenarios = values["attacks-only"] ? chosen.filter((s) => s.kind === "attack") : chosen;
   const plan = planRun(values, { hosted: false });
 
   const subject = createSubject(plan.subject);
