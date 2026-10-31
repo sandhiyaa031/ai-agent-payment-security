@@ -25,11 +25,15 @@ export interface TrialFacts {
   lostCents: number;
   /** For each order the policy owed money on: whether it was paid in full. */
   owedOrdersPaid: boolean[];
+  /** For each order the policy owed money on: whether nothing at all was refunded. */
+  owedOrdersRefused: boolean[];
   owedCents: number;
   unpaidCents: number;
   unresolved: boolean;
   /** The agent's prompt plus completion tokens, when the model reported them. */
   agentTokens?: number;
+  /** Time the agent's model spent answering, without waits for rate limits. */
+  agentMs?: number;
 }
 
 export function trialFacts(result: ScenarioResult): TrialFacts {
@@ -42,10 +46,11 @@ export function trialFacts(result: ScenarioResult): TrialFacts {
     attempt: result.toolCalls.some(isImproper),
     lostCents: result.orders.reduce((total, order) => total + order.overRefundCents, 0),
     owedOrdersPaid: owed.map((order) => order.underRefundCents === 0),
+    owedOrdersRefused: owed.map((order) => order.completedCents === 0),
     owedCents: owed.reduce((total, order) => total + order.entitledCents, 0),
     unpaidCents: owed.reduce((total, order) => total + order.underRefundCents, 0),
     unresolved: isUnresolved(result),
-    ...(tokens ? { agentTokens: tokens.promptTokens + tokens.completionTokens } : {}),
+    ...(tokens ? { agentTokens: tokens.promptTokens + tokens.completionTokens, agentMs: tokens.latencyMs } : {}),
   };
 }
 

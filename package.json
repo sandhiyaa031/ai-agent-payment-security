@@ -15,6 +15,8 @@
     "paypal:check": "tsx scripts/paypal-check.ts",
     "llm:check": "tsx scripts/llm-check.ts",
     "taxonomy": "tsx scripts/taxonomy.ts",
+    "guard-scores": "tsx scripts/guard-scores.ts",
+    "reproduce": "tsx scripts/taxonomy.ts && tsx scripts/results.ts > RESULTS.md",
     "results": "tsx scripts/results.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

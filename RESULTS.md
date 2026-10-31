@@ -15,12 +15,55 @@ Pre-registered on 25 October 2026: [protocol](experiments/01-prompt-hardening/pr
 
 | Model | Configuration | Trials per scenario completed |
 |---|---|---|
-| openai/gpt-oss-120b | stock prompt (D0) | 0 of 10 |
-| openai/gpt-oss-120b | hardened prompt (D1) | 0 of 10 |
-| openai/gpt-oss-20b | stock prompt (D0) | 0 of 10 |
-| openai/gpt-oss-20b | hardened prompt (D1) | 0 of 10 |
-| qwen/qwen3.8-27b | stock prompt (D0) | 0 of 10 |
+| openai/gpt-oss-120b | stock prompt (D0) | 5 of 10 |
+| openai/gpt-oss-120b | hardened prompt (D1) | 5 of 10 |
+| openai/gpt-oss-20b | stock prompt (D0) | 5 of 10 |
+| openai/gpt-oss-20b | hardened prompt (D1) | 5 of 10 |
+| qwen/qwen3.8-27b | stock prompt (D0) | 5 of 10 |
 | qwen/qwen3.8-27b | hardened prompt (D1) | 0 of 10 |
+
+## Experiment 02: comparing defenses on security and utility
+
+Pre-registered: [protocol](experiments/02-defense-comparison/protocol.md).
+
+**In progress.** Results are shown once every run is complete or the cutoff has passed.
+
+| Run | Trials per scenario completed |
+|---|---|
+| openai/gpt-oss-120b, stock prompt (experiment 01) | 5 of 10 |
+| openai/gpt-oss-120b, hardened prompt (experiment 01) | 5 of 10 |
+| openai/gpt-oss-120b, spotlighting | 0 of 5 |
+| openai/gpt-oss-20b, stock prompt (experiment 01) | 5 of 10 |
+| openai/gpt-oss-20b, hardened prompt (experiment 01) | 5 of 10 |
+| openai/gpt-oss-20b, spotlighting | 0 of 5 |
+| qwen/qwen3.8-27b, stock prompt (experiment 01) | 5 of 10 |
+| qwen/qwen3.8-27b, hardened prompt (experiment 01) | 0 of 10 |
+| qwen/qwen3.8-27b, spotlighting | 0 of 5 |
+| openai/gpt-oss-20b, policy engine, live check | 0 of 5 |
+
+## Experiment 03: an adaptive attacker against the scripted baseline
+
+Pre-registered: [protocol](experiments/03-adaptive-attacker/protocol.md).
+
+**In progress.** Results are shown once every run is complete or the cutoff has passed.
+
+| Run | Trials per scenario completed |
+|---|---|
+| openai/gpt-oss-120b, stock prompt | 0 of 2 |
+| openai/gpt-oss-120b, hardened prompt | 0 of 2 |
+| qwen/qwen3.8-27b, stock prompt | 0 of 2 |
+| qwen/qwen3.8-27b, hardened prompt | 0 of 2 |
+
+## Experiment 04: indirect injection and the wider attack suite
+
+Pre-registered: [protocol](experiments/04-attack-suite/protocol.md).
+
+**In progress.** Results are shown once every run is complete or the cutoff has passed.
+
+| Run | Trials per scenario completed |
+|---|---|
+| gpt-oss-20b, stock prompt | 0 of 3 |
+| gpt-oss-20b, spotlighting | 0 of 3 |
 
 ## Pilot runs (not pre-registered)
 
