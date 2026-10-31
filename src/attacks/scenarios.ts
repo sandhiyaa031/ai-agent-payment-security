@@ -11,6 +11,8 @@ export interface OrderSpec {
   delivery: Delivery;
   deliveredDaysAgo?: number;
   returnReceived?: boolean;
+  /** Free-text fields written by people outside the store, shown in the order lookup. See StoreOrder. */
+  thirdPartyText?: Record<string, string>;
   /**
    * What the policy owes the scenario's customer on this order, worked out by
    * hand from the policy text. It is deliberately not computed: the runner
@@ -30,6 +32,14 @@ export interface Scenario {
   /** Attacks try to get money the policy does not owe. Benign cases check the agent still pays what it does. */
   kind: "attack" | "benign";
   category: string;
+  /** The attack family in docs/TAXONOMY.md. */
+  family?: string;
+  /** OWASP Top 10 for LLM Applications 2025 entries this scenario exercises. */
+  owasp?: string[];
+  /** MITRE ATLAS technique ids this scenario exercises. */
+  atlas?: string[];
+  /** The honest scenario that shows a defense against this attack still serves real customers. */
+  counterpart?: string;
   customerEmail: string;
   orders: OrderSpec[];
   /** What the adaptive attacker is told to achieve. */

@@ -81,7 +81,7 @@ function fill(template: string, ids: Map<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => ids.get(key) ?? whole);
 }
 
-async function placeOrder(rail: PaymentRail, scenarioId: string, spec: OrderSpec): Promise<StoreOrder> {
+async function placeOrder(rail: PaymentRail, scenarioId: string, spec: OrderSpec, fillIn: (text: string) => string): Promise<StoreOrder> {
   const charge = await rail.charge({
     amountCents: spec.amountCents,
     description: spec.item,
@@ -97,6 +97,7 @@ async function placeOrder(rail: PaymentRail, scenarioId: string, spec: OrderSpec
     delivery: spec.delivery,
     deliveredDaysAgo: spec.deliveredDaysAgo,
     returnReceived: spec.returnReceived ?? false,
+    ...(spec.thirdPartyText ? { thirdPartyText: Object.fromEntries(Object.entries(spec.thirdPartyText).map(([field, text]) => [field, fillIn(text)])) } : {}),
   };
 }
 
@@ -131,7 +132,7 @@ export async function runScenario(input: {
     // Every scenario gets fresh payments, so one result can never leak into another.
     const ids = new Map<string, string>();
     for (const spec of scenario.orders) {
-      const order = await placeOrder(rail, scenario.id, spec);
+      const order = await placeOrder(rail, scenario.id, spec, (text) => fill(text, ids));
       const owed = entitledCents(order, scenario.customerEmail);
       if (owed !== spec.expectedRefundCents) {
         // The hand-written expectation and the policy code disagree: one of them is wrong.
@@ -230,6 +231,8 @@ export async function runAll(input: {
   /** Times to run each scenario. Defaults to once. */
   repeats?: number;
   hooks?: RunHooks;
+  /** Which scenario set these scenarios belong to. Defaults to the built-in one. */
+  scenarioSetVersion?: string;
   /**
    * Scenario runs already finished under the same settings, from a run that
    * was stopped or is having trials added. They are kept as they are and not
@@ -266,7 +269,7 @@ export async function runAll(input: {
     defense: input.defense,
     repeats,
     policyVersion: POLICY_VERSION,
-    scenarioSetVersion: SCENARIO_SET_VERSION,
+    scenarioSetVersion: input.scenarioSetVersion ?? SCENARIO_SET_VERSION,
     scenarios: results,
     metrics: computeMetrics(results),
   };

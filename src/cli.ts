@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { SCENARIO_SET_VERSION, SCENARIOS } from "./attacks/scenarios";
+import { loadSuite } from "./attacks/suite";
 import { openProgress, specs, type Progress } from "./checkpoint";
 import { sha256 } from "./manifest";
 import { createAttacker, createRail, createSubject, harnessVersion, loadEnv } from "./config";
@@ -35,6 +36,8 @@ Usage: npm run crashtest -- [options]
   --cap <dollars>                       Extra defense: ceiling on total refunds per order
   --repeat <n>                          Run each scenario n times (default 1). Models vary
                                         between runs; the report gives counts per scenario
+  --suite <path>                        Run the scenarios in this data file, for example
+                                        scenarios/set-3.json (default: the built-in set 2)
   --only <scenario-id>                  Run only this scenario (can be given more than once)
   --json <path>                         Also write the full result as JSON
   --record <name>                       Save the run to recordings/<name>.json so the
@@ -63,6 +66,7 @@ async function main(): Promise<void> {
       "max-turns": { type: "string" },
       cap: { type: "string" },
       repeat: { type: "string" },
+      suite: { type: "string" },
       only: { type: "string", multiple: true },
       json: { type: "string" },
       record: { type: "string" },
@@ -78,12 +82,13 @@ async function main(): Promise<void> {
   }
   loadEnv();
 
+  const suite = values.suite ? loadSuite(values.suite) : { version: SCENARIO_SET_VERSION, scenarios: SCENARIOS };
   const wanted = values.only ?? [];
-  const unknown = wanted.filter((id) => !SCENARIOS.some((s) => s.id === id));
+  const unknown = wanted.filter((id) => !suite.scenarios.some((s) => s.id === id));
   if (unknown.length > 0) {
-    throw new Error(`No scenario "${unknown.join(", ")}". Known: ${SCENARIOS.map((s) => s.id).join(", ")}`);
+    throw new Error(`No scenario "${unknown.join(", ")}". Known: ${suite.scenarios.map((s) => s.id).join(", ")}`);
   }
-  const scenarios = wanted.length > 0 ? SCENARIOS.filter((s) => wanted.includes(s.id)) : SCENARIOS;
+  const scenarios = wanted.length > 0 ? suite.scenarios.filter((s) => wanted.includes(s.id)) : suite.scenarios;
   const plan = planRun(values, { hosted: false });
 
   const subject = createSubject(plan.subject);
@@ -121,7 +126,7 @@ async function main(): Promise<void> {
         attacker: attacker.name,
         defense: plan.defense,
         policyVersion: POLICY_VERSION,
-        scenarioSetVersion: SCENARIO_SET_VERSION,
+        scenarioSetVersion: suite.version,
         harnessVersion: version,
         scenarioIds: scenarios.map((scenario) => scenario.id),
         ...specs(subject.manifest?.(), attacker.manifest?.()),
@@ -159,6 +164,7 @@ async function main(): Promise<void> {
     }),
     defense: plan.defense,
     repeats: plan.repeats,
+    scenarioSetVersion: suite.version,
     resume: progress && { startedAt: progress.startedAt, results: earlier },
     seed: progress?.seed ?? requestedSeed,
     hooks: {

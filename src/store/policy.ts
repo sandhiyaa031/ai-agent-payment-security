@@ -13,6 +13,13 @@ export interface StoreOrder {
   delivery: Delivery;
   deliveredDaysAgo?: number;
   returnReceived: boolean;
+  /**
+   * Free-text fields such as a checkout note, carrier text, a product review
+   * or an email on file. They are written by people outside the store and
+   * never affect what the policy owes. They are where indirect prompt
+   * injection lives.
+   */
+  thirdPartyText?: Record<string, string>;
 }
 
 /** Bump when the policy text or its code changes, so old results are not compared with new ones. */

@@ -3,7 +3,7 @@ import type { ChatModel, ToolSpec } from "../llm/model";
 import { sha256, type ComponentManifest } from "../manifest";
 import { toCents, toDecimal, usd } from "../money";
 import { toRefundStatus } from "../rail/rail";
-import { createChat, promptTemplate, systemPrompt, type ToolReply } from "./agent";
+import { createChat, promptTemplate, systemPrompt, thirdPartyFields, type ToolReply } from "./agent";
 import type { Subject, SubjectSession } from "./subject";
 import type { SendResult, SessionContext, SupportTools } from "./tools";
 
@@ -127,6 +127,7 @@ export class ToolkitSubject implements Subject {
           delivery_status: order.delivery,
           delivered_days_ago: order.deliveredDaysAgo ?? null,
           return_received: order.returnReceived,
+          ...thirdPartyFields(order.thirdPartyText),
         }),
       );
     }
