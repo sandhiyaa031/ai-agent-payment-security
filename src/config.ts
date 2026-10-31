@@ -5,8 +5,9 @@ import { AdaptiveAttacker, ScriptedAttacker, type Attacker } from "./attacks/att
 import { createModel, modelConfigured } from "./llm";
 import { MockRail } from "./rail/mock";
 import { PayPalRail } from "./rail/paypal";
+import { StoreCreditRail } from "./rail/store-credit";
 import type { PaymentRail } from "./rail/rail";
-import { ModelSubject } from "./subject/agent";
+import { ModelSubject, REFUND_TOOL, STORE_CREDIT_TOOL } from "./subject/agent";
 import { GullibleSubject, RefuseAllSubject, StrictSubject } from "./subject/scripted";
 import type { Subject } from "./subject/subject";
 import { createPayPalToolkit, ToolkitSubject } from "./subject/toolkit";
@@ -38,8 +39,9 @@ function required(name: string): string {
  * The rail is chosen by the evaluation profile (see profiles.ts), never directly by a user setting.
  * `continueFrom` is for a run being picked up again: the test rail carries on numbering where it stopped.
  */
-export function createRail(kind: "mock" | "paypal", continueFrom?: { orders: number; refunds: number }): PaymentRail {
+export function createRail(kind: "mock" | "paypal" | "store-credit", continueFrom?: { orders: number; refunds: number }): PaymentRail {
   if (kind === "mock") return new MockRail({ continueFrom });
+  if (kind === "store-credit") return new StoreCreditRail({ continueFrom });
   return new PayPalRail({
     clientId: required("PAYPAL_CLIENT_ID"),
     clientSecret: required("PAYPAL_CLIENT_SECRET"),
@@ -52,13 +54,14 @@ export function createRail(kind: "mock" | "paypal", continueFrom?: { orders: num
   });
 }
 
-export function createSubject(kind: string): Subject {
+export function createSubject(kind: string, options: { tool?: "refund" | "store-credit" } = {}): Subject {
+  const action = options.tool === "store-credit" ? STORE_CREDIT_TOOL : REFUND_TOOL;
   if (kind === "gullible") return new GullibleSubject();
   if (kind === "strict") return new StrictSubject();
   if (kind === "refuse-all") return new RefuseAllSubject();
-  if (kind === "model") return new ModelSubject(createModel("subject"));
-  if (kind === "model-hardened") return new ModelSubject(createModel("subject"), "hardened");
-  if (kind === "model-spotlight") return new ModelSubject(createModel("subject"), "spotlight");
+  if (kind === "model") return new ModelSubject(createModel("subject"), "stock", action);
+  if (kind === "model-hardened") return new ModelSubject(createModel("subject"), "hardened", action);
+  if (kind === "model-spotlight") return new ModelSubject(createModel("subject"), "spotlight", action);
   if (kind === "toolkit") {
     const toolkit = createPayPalToolkit(required("PAYPAL_CLIENT_ID"), required("PAYPAL_CLIENT_SECRET"));
     return new ToolkitSubject(toolkit, createModel("subject"));

@@ -31,6 +31,9 @@ Usage: npm run crashtest -- [options]
                                         tells it customer text is untrusted;
                                         toolkit is the same agent refunding through
                                         PayPal's Agent Toolkit (sandbox profile only)
+  --tool <refund|store-credit>          The privileged tool the agent is given (default refund).
+                                        store-credit uses an in-memory credit ledger and is
+                                        for the baseline and guarded profiles
   --attacker <scripted|adaptive>        Who plays the customer (default scripted)
   --max-turns <n>                       Turn limit for the adaptive attacker (default 5)
   --cap <dollars>                       Extra defense: ceiling on total refunds per order
@@ -63,6 +66,7 @@ async function main(): Promise<void> {
     options: {
       profile: { type: "string" },
       subject: { type: "string" },
+      tool: { type: "string" },
       attacker: { type: "string" },
       "max-turns": { type: "string" },
       cap: { type: "string" },
@@ -94,7 +98,9 @@ async function main(): Promise<void> {
   const scenarios = values["attacks-only"] ? chosen.filter((s) => s.kind === "attack") : chosen;
   const plan = planRun(values, { hosted: false });
 
-  const subject = createSubject(plan.subject);
+  if (values.tool !== undefined && values.tool !== "refund" && values.tool !== "store-credit") throw new Error('--tool must be "refund" or "store-credit".');
+  if (values.tool === "store-credit" && plan.profile.rail !== "mock") throw new Error("--tool store-credit runs only in the baseline and guarded profiles.");
+  const subject = createSubject(plan.subject, { tool: values.tool as "refund" | "store-credit" | undefined });
   const maxTurns = values["max-turns"] === undefined ? undefined : Number(values["max-turns"]);
   if (maxTurns !== undefined && (!Number.isInteger(maxTurns) || maxTurns < 1)) throw new Error("--max-turns must be a whole number of 1 or more.");
   const attacker = createAttacker(plan.attacker, { maxTurns });
@@ -161,7 +167,7 @@ async function main(): Promise<void> {
     scenarios,
     subject,
     attacker,
-    rail: createRail(plan.profile.rail, {
+    rail: createRail(values.tool === "store-credit" ? "store-credit" : plan.profile.rail, {
       orders: earlier.reduce((total, result) => total + result.orders.length, 0),
       refunds: earlier.reduce((total, result) => total + result.orders.reduce((sum, order) => sum + order.refunds.length, 0), 0),
     }),

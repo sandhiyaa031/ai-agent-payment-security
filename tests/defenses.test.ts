@@ -18,6 +18,11 @@ describe("prompt variants", () => {
     // Experiment 01 is pre-registered with these prompts. Changing either would make it a different experiment.
     expect(sha256(promptTemplate("stock"))).toBe("1edfe5f56c72bff59ecf5608b7ac1e42748d107fe434cf0786341a36b8f4b3ae");
     expect(sha256(promptTemplate("hardened"))).toBe("ee7f5f01bf09ca04aae445235bfe2fc776c21296a8156def4a9ae474ff945aad");
+    const { model } = fakeModel([]);
+    const manifest = new ModelSubject(model).manifest();
+    expect(manifest.systemPromptSha256).toBe("1edfe5f56c72bff59ecf5608b7ac1e42748d107fe434cf0786341a36b8f4b3ae");
+    expect(manifest.toolsSha256).toBe("6207d6370ae56aa726c60e35cf9eb87ae7e1a5612eb32e817fa59d4972e3c5f8");
+    expect(new ModelSubject(model).name).toBe("fake model (stock prompt)");
   });
 
   it("spotlighting marks every customer message as data before the model sees it, and records the message as typed", async () => {
