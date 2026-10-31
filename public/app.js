@@ -287,7 +287,7 @@ function upToTurn(events, turns) {
 function renderChatControls(row) {
   const controls = $("chatControls");
   const trials = row ? [...row.history.keys()] : [];
-  controls.hidden = !row || row.state !== "done" || trials.length === 0;
+  controls.hidden = row?.state !== "done" || trials.length === 0;
   if (controls.hidden) return;
   const picker = $("trial");
   picker.replaceChildren();
